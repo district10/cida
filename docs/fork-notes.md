@@ -81,7 +81,8 @@ open "/Applications/Cida Dev.app"
 
 ```bash
 cd ~/git/cida
-git remote add upstream https://github.com/Xuanwo/cida.git   # 还没加过才需要
+# 本仓库的 origin 是镜像地址（ghfast.top 前缀），国内 fetch 不用代理；upstream 指向真身
+git remote add upstream https://github.com/Xuanwo/cida.git   # 已经加过了
 # 国内取上游：直连会超时，走镜像
 git fetch https://ghfast.top/https://github.com/Xuanwo/cida.git main:refs/remotes/upstream/main
 git rebase upstream/main
