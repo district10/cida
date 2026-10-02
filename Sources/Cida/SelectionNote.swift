@@ -16,6 +16,7 @@ struct NoteFeedback: Equatable {
 final class SelectionNote {
   private let defaultStore: NoteStore
   private let readSelection: @MainActor () async -> String?
+  private let readClipboard: @MainActor () -> String?
   private let frontmostApplication: @MainActor () -> NoteSourceApplication?
 
   var onFeedback: (NoteFeedback?) -> Void = { _ in }
@@ -28,12 +29,17 @@ final class SelectionNote {
       await SelectedText.read(
         from: AccessibilitySelectedTextSource(), copyingWith: PasteboardSelectionCopier())
     },
+    readClipboard: @escaping @MainActor () -> String? = {
+      // Only text counts, and a copy of files is not text (`PasteboardSelectionCopier`).
+      PasteboardSelectionCopier.copiedText(on: .general)
+    },
     frontmostApplication: @escaping @MainActor () -> NoteSourceApplication? = {
       SelectionNote.currentApplication()
     }
   ) {
     self.defaultStore = store
     self.readSelection = readSelection
+    self.readClipboard = readClipboard
     self.frontmostApplication = frontmostApplication
   }
 
@@ -50,6 +56,9 @@ final class SelectionNote {
 
   /// Reads the selection and saves it. The file comes from the settings, so a change in Settings
   /// applies to the next press.
+  ///
+  /// With nothing selected the clipboard is saved instead (`Design/spec/notes.md` §一): the press
+  /// means "keep this", and a line copied a moment ago is as good a "this" as a line selected.
   func saveSelection(settings: CidaSettings) async {
     guard !isSaving else { return }
     isSaving = true
@@ -58,18 +67,24 @@ final class SelectionNote {
     // Read the source application before the selection: reading may ask another application to
     // copy, and the note should name where the user was working, not where the copy landed.
     let application = frontmostApplication()
-    guard let selection = await readSelection() else {
-      onFeedback(NoteFeedback(text: "请先选中要记下来的文字", dismissAfter: 2.5))
+    let selection = await readSelection()
+    guard let text = selection ?? readClipboard() else {
+      onFeedback(NoteFeedback(text: "请先选中文字，或复制一段", dismissAfter: 2.5))
       recordEvent("note-no-selection")
       return
     }
-    save(text: selection, application: application, settings: settings)
+    save(
+      text: text, application: application,
+      source: selection == nil ? "clipboard" : "selection", settings: settings)
   }
 
   /// Saves text the caller already holds — the panel's ⌘S.
-  func save(text: String, application: NoteSourceApplication?, settings: CidaSettings) {
+  func save(
+    text: String, application: NoteSourceApplication?, source: String = "selection",
+    settings: CidaSettings
+  ) {
     let store = store(for: settings)
-    let draft = NoteDraft(text: text, source: "selection", application: application, note: nil)
+    let draft = NoteDraft(text: text, source: source, application: application, note: nil)
     guard !store.isRecentDuplicate(draft) else {
       onFeedback(NoteFeedback(text: "刚刚已存过这条", dismissAfter: CidaHintPanel.briefSeconds))
       recordEvent("note-duplicate")
@@ -78,9 +93,10 @@ final class SelectionNote {
     do {
       try store.append(draft)
       let name = application?.name
+      let origin = source == "clipboard" ? "剪贴板" : name
       onFeedback(
         NoteFeedback(
-          text: name.map { "已存入笔记 · \($0)" } ?? "已存入笔记",
+          text: origin.map { "已存入笔记 · \($0)" } ?? "已存入笔记",
           dismissAfter: CidaHintPanel.briefSeconds))
       recordEvent("note-saved source=\(draft.source)")
     } catch let error as NoteStoreError {

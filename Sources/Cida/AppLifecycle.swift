@@ -403,7 +403,7 @@ final class CidaAppDelegate: NSObject, NSApplicationDelegate {
   private func savePanelNote(_ text: String) {
     guard let trimmed = SelectedText.normalized(text) else {
       logShortcut("note-empty")
-      noteHint.show("请先选中要记下来的文字", for: CidaHintPanel.instructiveSeconds, on: noteScreen)
+      noteHint.show("请先选中文字，或复制一段", for: CidaHintPanel.instructiveSeconds, on: noteScreen)
       return
     }
     selectionNote.save(

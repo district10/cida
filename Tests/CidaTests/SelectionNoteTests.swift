@@ -23,6 +23,7 @@ final class SelectionNoteTests: XCTestCase {
 
   private func makeNote(
     selection: String?,
+    clipboard: String? = nil,
     application: NoteSourceApplication? = NoteSourceApplication(
       name: "Safari", bundleIdentifier: "com.apple.Safari"),
     path: String = ""
@@ -32,6 +33,7 @@ final class SelectionNoteTests: XCTestCase {
     let note = SelectionNote(
       store: NoteStore(fileURL: fileURL),
       readSelection: { selection },
+      readClipboard: { clipboard },
       frontmostApplication: { application })
     var feedbacks: [NoteFeedback?] = []
     var events: [String] = []
@@ -66,13 +68,37 @@ final class SelectionNoteTests: XCTestCase {
     XCTAssertEqual(events(), ["note-saved source=selection"])
   }
 
-  func testNoSelectionWritesNothingAndSaysSo() async throws {
+  func testNoSelectionAndNoClipboardWritesNothingAndSaysSo() async throws {
     let (note, feedbacks, events) = makeNote(selection: nil)
     await note.saveSelection(settings: settings())
 
     XCTAssertEqual(try savedNotes().count, 0)
-    XCTAssertEqual(feedbacks().last??.text, "请先选中要记下来的文字")
+    XCTAssertEqual(feedbacks().last??.text, "请先选中文字，或复制一段")
     XCTAssertEqual(events(), ["note-no-selection"])
+  }
+
+  /// Nothing selected but text on the clipboard: the press means "keep this", so the clipboard is
+  /// what is kept, marked as such (`Design/spec/notes.md` §一).
+  func testWithNothingSelectedTheClipboardIsSaved() async throws {
+    let (note, feedbacks, events) = makeNote(selection: nil, clipboard: "刚复制的那句话")
+    await note.saveSelection(settings: settings())
+
+    let saved = try savedNotes()
+    XCTAssertEqual(saved.map(\.text), ["刚复制的那句话"])
+    XCTAssertEqual(saved[0].source, "clipboard")
+    XCTAssertEqual(saved[0].app?.name, "Safari", "仍然记下当时在哪工作")
+    XCTAssertEqual(feedbacks().last??.text, "已存入笔记 · 剪贴板")
+    XCTAssertEqual(events(), ["note-saved source=clipboard"])
+  }
+
+  /// A selection wins over the clipboard: the user selected something on purpose.
+  func testASelectionWinsOverTheClipboard() async throws {
+    let (note, feedbacks, _) = makeNote(selection: "选中的", clipboard: "剪贴板里的")
+    await note.saveSelection(settings: settings())
+
+    XCTAssertEqual(try savedNotes().map(\.text), ["选中的"])
+    XCTAssertEqual(try savedNotes()[0].source, "selection")
+    XCTAssertEqual(feedbacks().last??.text, "已存入笔记 · Safari")
   }
 
   /// Two presses in a row are one note: the pill says so instead of writing it twice.

@@ -2,6 +2,12 @@
 
 Working rules for anyone changing Cida, human or agent. [`docs/development.md`](docs/development.md) explains the build, the test harnesses and the architecture in depth.
 
+> **This checkout is a personal fork** (branch `notes`): it keeps Cida's translation as it is and adds saving the
+> selection or the clipboard as a note (⌥N / ⌘S, one JSON line per note). [`docs/fork-notes.md`](docs/fork-notes.md)
+> holds the background, what we added, our build and install steps in China, how to follow upstream, and the
+> capability gaps we have not covered. Read it before changing anything about notes; keep our diff against
+> upstream small (new files never conflict, the seven touched files carry one small addition each).
+
 ## Layout
 
 | Path | Holds |
