@@ -333,6 +333,11 @@ private struct SettingsBody: View {
           GlobalShortcutRow(model: model, action: .captureText)
           GlobalShortcutRow(model: model, action: .translationLayer)
           GlobalShortcutRow(model: model, action: .improveSelection)
+          GlobalShortcutRow(model: model, action: .saveNote)
+        }
+        Hairline()
+        SettingsGroup(title: "笔记") {
+          NoteFileRow(model: model)
         }
         Hairline()
         SettingsGroup(title: "权限") {
@@ -837,6 +842,7 @@ private struct GlobalShortcutRow: View {
     case .captureText: "截图翻译"
     case .translationLayer: "原处翻译"
     case .improveSelection: "改进并替换"
+    case .saveNote: "存为笔记"
     }
   }
 
@@ -854,6 +860,7 @@ private struct GlobalShortcutRow: View {
     case .captureText: return "框选屏幕文字并翻译"
     case .translationLayer: return "加 ⇧ 翻译整个窗口"
     case .improveSelection: return "改进并替换选中文字"
+    case .saveNote: return "把选中文字存进笔记文件"
     }
   }
 
@@ -863,6 +870,7 @@ private struct GlobalShortcutRow: View {
     case .captureText: "settings-capture-shortcut"
     case .translationLayer: "settings-layer-shortcut"
     case .improveSelection: "settings-improvement-shortcut"
+    case .saveNote: "settings-note-shortcut"
     }
   }
 
@@ -872,6 +880,7 @@ private struct GlobalShortcutRow: View {
     case .captureText: "截图翻译快捷键"
     case .translationLayer: "原处翻译快捷键"
     case .improveSelection: "改进并替换快捷键"
+    case .saveNote: "存为笔记快捷键"
     }
   }
 
@@ -1053,6 +1062,32 @@ private struct LaunchAtLoginRow: View {
       .accessibilityIdentifier("settings-launch-at-login-toggle")
     }
     .onAppear(perform: model.refreshLaunchAtLoginStatus)
+  }
+}
+
+/// Where a note goes (`Design/spec/notes.md` §二). Empty means Jotbox's inbox, which already
+/// speaks the format; the placeholder shows that path while the field is empty.
+private struct NoteFileRow: View {
+  @Bindable var model: AppModel
+  @FocusState private var isFocused: Bool
+
+  var body: some View {
+    SettingsRow(title: "笔记文件", caption: "留空写到 Jotbox 的收件箱", alignment: .trailing) {
+      SettingsTextField(
+        text: $model.settings.noteFile,
+        placeholder: NoteStore.defaultFileURL.path,
+        accessibilityLabel: "笔记文件",
+        accessibilityIdentifier: "settings-note-file-editor",
+        isFocused: isFocused
+      )
+      .focused($isFocused)
+    }
+    .onChange(of: isFocused) { _, focused in
+      if !focused {
+        model.settings.noteFile = model.settings.noteFile.trimmingCharacters(
+          in: .whitespacesAndNewlines)
+      }
+    }
   }
 }
 

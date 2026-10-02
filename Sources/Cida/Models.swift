@@ -223,6 +223,12 @@ struct CidaSettings: Equatable, Sendable {
   /// The combination that translates the paragraph under the pointer; with ⇧, the whole window.
   var layerShortcut: GlobalShortcut? = .optionD
   var improvementShortcut: GlobalShortcut? = .optionF
+  /// The combination that saves the selection as a note without showing the panel
+  /// (`Design/spec/notes.md`).
+  var noteShortcut: GlobalShortcut? = .optionN
+  /// Where selection notes are written. Empty means Jotbox's inbox (`NoteStore.defaultFileURL`),
+  /// which already speaks the format; a path (`~` allowed) puts them somewhere else.
+  var noteFile = ""
 
   /// Whether requests can be sent (`Design/spec/configuration.md`): a valid endpoint, a model,
   /// and a key unless the endpoint is on this Mac or `auth` is `none`.
@@ -242,12 +248,16 @@ struct CidaSettings: Equatable, Sendable {
     case .captureText: captureShortcut
     case .translationLayer: layerShortcut
     case .improveSelection: improvementShortcut
+    case .saveNote: noteShortcut
     }
   }
 
   /// Every combination the global shortcuts hold: the layer's also holds its ⇧ variant.
   var heldShortcuts: [GlobalShortcut] {
-    [shortcut, captureShortcut, layerShortcut, layerShortcut?.addingShift, improvementShortcut].compactMap(\.self)
+    [
+      shortcut, captureShortcut, layerShortcut, layerShortcut?.addingShift, improvementShortcut,
+      noteShortcut,
+    ].compactMap(\.self)
   }
 
   /// No two shortcuts share a combination, and the layer's leaves ⇧ to its whole-window variant.
@@ -262,6 +272,7 @@ struct CidaSettings: Equatable, Sendable {
     case .captureText: captureShortcut = newShortcut
     case .translationLayer: layerShortcut = newShortcut
     case .improveSelection: improvementShortcut = newShortcut
+    case .saveNote: noteShortcut = newShortcut
     }
   }
 
@@ -330,6 +341,8 @@ extension CidaSettings: Codable {
     case captureShortcut
     case layerShortcut
     case improvementShortcut
+    case noteShortcut
+    case noteFile
     case promptContractVersion
     /// 1.0's provider preset, model and custom endpoint; read once to build `modelService`.
     case legacyProvider = "provider"
@@ -382,6 +395,8 @@ extension CidaSettings: Codable {
     captureShortcut = try decodeShortcut(.captureShortcut, default: .optionS)
     layerShortcut = try decodeShortcut(.layerShortcut, default: .optionD)
     improvementShortcut = try decodeShortcut(.improvementShortcut, default: .optionF)
+    noteShortcut = try decodeShortcut(.noteShortcut, default: .optionN)
+    noteFile = try container.decodeIfPresent(String.self, forKey: .noteFile) ?? ""
     if !container.contains(.improvementShortcut),
       [shortcut, captureShortcut, layerShortcut, layerShortcut?.addingShift].contains(.optionF)
     {
@@ -397,9 +412,11 @@ extension CidaSettings: Codable {
     try container.encode(myLanguage, forKey: .myLanguage)
     try container.encode(foreignLanguage, forKey: .foreignLanguage)
     try container.encode(launchAtLogin, forKey: .launchAtLogin)
+    try container.encode(noteFile, forKey: .noteFile)
     for (value, key) in [
       (shortcut, CodingKeys.shortcut), (captureShortcut, .captureShortcut),
       (layerShortcut, .layerShortcut), (improvementShortcut, .improvementShortcut),
+      (noteShortcut, .noteShortcut),
     ] {
       if let value {
         try container.encode(value, forKey: key)

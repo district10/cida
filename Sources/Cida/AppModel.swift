@@ -170,6 +170,8 @@ final class AppModel {
   private let saveSettings: @MainActor (CidaSettings) -> Void
   private let applyGlobalShortcut: @MainActor (GlobalShortcut?, GlobalShortcutAction) -> Bool
   private let suspendGlobalShortcuts: @MainActor (Bool) -> Void
+  /// Saves text as a note (`Design/spec/notes.md`); the owner shows the pill.
+  private let saveNote: @MainActor (String) -> Void
   /// The Settings chip waiting for the next key press. While one records,
   /// every global shortcut is suspended so any combination reaches it.
   var recordingShortcut: GlobalShortcutAction? {
@@ -225,6 +227,7 @@ final class AppModel {
       _, _ in true
     },
     suspendGlobalShortcuts: @escaping @MainActor (Bool) -> Void = { _ in },
+    saveNote: @escaping @MainActor (String) -> Void = { _ in },
     selectionAccess: SystemPermission = .accessibility,
     captureAccess: SystemPermission = .screenRecording,
     lastModelServiceCheck: ModelServiceCheckRecord? = nil,
@@ -245,6 +248,7 @@ final class AppModel {
     self.saveSettings = saveSettings
     self.applyGlobalShortcut = applyGlobalShortcut
     self.suspendGlobalShortcuts = suspendGlobalShortcuts
+    self.saveNote = saveNote
     self.selectionAccess = selectionAccess
     self.captureAccess = captureAccess
     self.lastModelServiceCheck = lastModelServiceCheck
@@ -519,6 +523,13 @@ final class AppModel {
     replaceSource(with: selection)
     startGeneration()
     return true
+  }
+
+  /// Saves the panel's text as a note (`Design/spec/notes.md` §三). The panel's ⌘S runs this;
+  /// ⌥N with the panel up lands in the same place. Nothing is sent to the model and the text
+  /// stays where it is.
+  func saveNoteFromPanel() {
+    saveNote(inputText)
   }
 
   /// Opens a completed background operation without generating again or translating it.

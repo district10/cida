@@ -65,6 +65,10 @@ final class CidaAppDelegate: NSObject, NSApplicationDelegate {
         self?.layerHotKey?.setSuspended(isSuspended)
         self?.layerWindowHotKey?.setSuspended(isSuspended)
         self?.improvementHotKey?.setSuspended(isSuspended)
+        self?.noteHotKey?.setSuspended(isSuspended)
+      },
+      saveNote: { [weak self] text in
+        self?.savePanelNote(text)
       },
       selectionAccess: launchOptions.selectionAccess,
       captureAccess: launchOptions.captureAccess,
@@ -114,6 +118,27 @@ final class CidaAppDelegate: NSObject, NSApplicationDelegate {
 
   /// The layer shortcut with ⇧: the whole window (`Design/spec/translation-layer.md` §三).
   private var layerWindowHotKey: GlobalHotKey?
+  /// The note shortcut (`Design/spec/notes.md`): saves the selection without the panel.
+  private var noteHotKey: GlobalHotKey?
+  private var noteMenuItem: NSMenuItem?
+  /// The screen the note shortcut was pressed on; the pill appears there.
+  private var noteScreen: NSScreen?
+  private lazy var noteHint = CidaHintPanel(identifier: "note-hint")
+  private lazy var selectionNote: SelectionNote = {
+    let note = SelectionNote()
+    // The note path reports through the same shortcut logger as ⌥A, so `log show` explains why a
+    // press saved nothing.
+    note.recordEvent = { [weak self] event in self?.logShortcut(event) }
+    note.onFeedback = { [weak self] feedback in
+      guard let self else { return }
+      guard let feedback else { noteHint.hide(); return }
+      noteHint.show(feedback.text, for: feedback.dismissAfter, on: noteScreen)
+    }
+    return note
+  }()
+  /// The application the panel was summoned from: a note saved in the panel names it, since the
+  /// frontmost application while the panel is up is Cida itself.
+  private var panelSourceApplication: NoteSourceApplication?
   /// The translation layer (`Design/spec/translation-layer.md`); nil in automation that shows
   /// no interactive UI.
   private var translationLayer: TranslationLayerController?
@@ -178,6 +203,9 @@ final class CidaAppDelegate: NSObject, NSApplicationDelegate {
       }
       improvementHotKey = GlobalHotKey(shortcut: model.settings.improvementShortcut) { [weak self] in
         self?.handleImprovementShortcut()
+      }
+      noteHotKey = GlobalHotKey(shortcut: model.settings.noteShortcut) { [weak self] in
+        self?.handleNoteShortcut()
       }
       updateTranslationLayer(for: model.settings.layerShortcut)
       warmUpTextRecognition()
@@ -263,6 +291,7 @@ final class CidaAppDelegate: NSObject, NSApplicationDelegate {
       case .captureText: captureHotKey
       case .translationLayer: layerHotKey
       case .improveSelection: improvementHotKey
+      case .saveNote: noteHotKey
       }
     let previous = hotKey?.shortcut
     if let hotKey, !hotKey.update(to: shortcut) {
@@ -288,6 +317,7 @@ final class CidaAppDelegate: NSObject, NSApplicationDelegate {
       switch action {
       case .showPanel: showPanelMenuItem
       case .captureText: captureMenuItem
+      case .saveNote: noteMenuItem
       case .translationLayer, .improveSelection: nil as NSMenuItem?
       }
     item?.keyEquivalent = shortcut?.menuKeyEquivalent ?? ""
@@ -339,6 +369,45 @@ final class CidaAppDelegate: NSObject, NSApplicationDelegate {
   private func logShortcut(_ event: String) {
     Self.shortcutLogger.notice("\(event, privacy: .public)")
     lifecycleLog?.record(event)
+  }
+
+  @objc
+  private func handleNoteShortcut() {
+    guard !isCapturing, !isReadingSelection else { return }
+    noteScreen = PanelController.activeScreen()
+    // With the panel up, the note is the text in it: the selection has already been imported, or
+    // the user typed or pasted it (⌥S's recognized text included). Otherwise it is what is
+    // selected right now, read the same way ⌥A reads it.
+    if panelController?.isVisible == true {
+      savePanelNote(model.inputText)
+      return
+    }
+    // Reading a selection needs the Accessibility permission, and so does the ⌘C fallback that
+    // covers an application which cannot answer: without it the note would always find nothing
+    // (§一). Ask for it the way 改进并替换 does.
+    model.refreshSelectionAccess()
+    guard model.isSelectionAccessGranted else {
+      logShortcut("note-needs-accessibility")
+      model.requestSelectionAccess()
+      return
+    }
+    selectionImprovement.dismiss()
+    logShortcut("note-pressed app=\(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "none")")
+    Task { @MainActor [weak self] in
+      guard let self else { return }
+      await selectionNote.saveSelection(settings: model.settings)
+    }
+  }
+
+  /// Saves the panel's text as a note; the panel's ⌘S and ⌥N with the panel up both land here.
+  private func savePanelNote(_ text: String) {
+    guard let trimmed = SelectedText.normalized(text) else {
+      logShortcut("note-empty")
+      noteHint.show("请先选中要记下来的文字", for: CidaHintPanel.instructiveSeconds, on: noteScreen)
+      return
+    }
+    selectionNote.save(
+      text: trimmed, application: panelSourceApplication, settings: model.settings)
   }
 
   private func handleImprovementShortcut() {
@@ -466,6 +535,11 @@ final class CidaAppDelegate: NSObject, NSApplicationDelegate {
   func showPanel() {
     selectionImprovement.dismiss()
     recoverAPIKeyIfNeeded()
+    // Remember where the user was working before the panel takes the foreground: a note saved
+    // from the panel names that application (`Design/spec/notes.md` §三).
+    if panelController?.isVisible != true {
+      panelSourceApplication = SelectionNote.currentApplication()
+    }
     lifecycleLog?.record("show-panel-requested", panel: panelController?.panel)
     panelController?.show()
     lifecycleLog?.record("show-panel-finished", panel: panelController?.panel)
@@ -544,8 +618,11 @@ final class CidaAppDelegate: NSObject, NSApplicationDelegate {
       }
       button.setAccessibilityIdentifier("cida-status-item")
     }
-    panelController?.onVisibilityChange = { [weak self] _ in
-      self?.updateStatusItemBreathing()
+    panelController?.onVisibilityChange = { [weak self] isVisible in
+      guard let self else { return }
+      updateStatusItemBreathing()
+      // A hidden panel has no source application any more; the next summons records its own.
+      if !isVisible { panelSourceApplication = nil }
     }
     observeGenerationForStatusItem()
     let menu = NSMenu()
@@ -567,6 +644,11 @@ final class CidaAppDelegate: NSObject, NSApplicationDelegate {
     menu.addItem(capture)
     captureMenuItem = capture
     updateMenuItem(for: .captureText, shortcut: model.settings.captureShortcut)
+    let note = NSMenuItem(title: "存为笔记", action: #selector(handleNoteShortcut), keyEquivalent: "")
+    note.target = self
+    menu.addItem(note)
+    noteMenuItem = note
+    updateMenuItem(for: .saveNote, shortcut: model.settings.noteShortcut)
     let settings = NSMenuItem(title: "设置…", action: #selector(showSettings), keyEquivalent: ",")
     settings.target = self
     menu.addItem(settings)
