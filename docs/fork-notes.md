@@ -129,6 +129,12 @@ swift build -Xswiftc -warnings-as-errors && swift test
 - ✅ 设置界面：`Design/boards/components.js` 补齐了「存为笔记」行与「笔记」组（含「存结果」），
   `Design/QACurrent/comparison-settings-shortcuts.png` 是原生截图与板的对照；`InteractionReproductionTests` 里
   快捷键页高度那条旧断言（板 525pt）本来就是坏的，这次按新板高 727pt 修好，该用例整条通过。
+- ✅ 设置标签白屏（2026-10-03 修，见 `fix: keep the Settings tab pinned to the window while it resizes`）：另一台 Mac（14" M1 Pro）上切到
+  「翻译 / 快捷键 / 通用」会白屏或只画出下半截，要退出重开——hosting view 的位置之前交给了 `autoresizingMask = [.width]`，
+  AppKit 对这种子视图还会保住下边距，等于有第二只手在移动标签；现在 host 由 `SettingsContentController.placeHost` 手工钉在容器左上角，
+  每个标签一份滚动视图，body 高度不会变成 0。回归用例在每次高度动画之后都断言"内容顶边贴窗口顶边、内容与窗口一样高"。
+  那台机器若再出问题，两条现场取证（都不用改设置）：`log show --predicate 'category == "settings"' --last 10m --info | grep repaired`
+  （会打印 host 被谁挪走的旧位置与新高度），以及离屏截图 `"/Applications/Cida Dev.app/Contents/MacOS/Cida" --design-state settings-shortcuts --snapshot-output /tmp/settings.png`。
 - ✅ 端到端：⌥A 开面板 → 填入文字 → ⌥N 落盘，记录 `source=selection`、`app=TextEdit`、时间戳正确，胶囊显示「已存入笔记 · TextEdit」。
 - ⚠️ 自动入库的端到端（真实模型）没跑：单测覆盖了"完成的生成才入库、结果与原文成对、失败不写"，但一条真实的翻译落盘要你本机用一次确认；
   查 `log stream --predicate 'category == "shortcut"' | grep note-saved-result` 或直接 `tail -f ~/.cida/items.jsonl`。
