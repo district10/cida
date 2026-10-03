@@ -460,6 +460,51 @@ final class InteractionReproductionTests: XCTestCase {
     assertTestProcessIsNotFrontmost()
   }
 
+  /// Reduce Motion skips the height animation, so the window is moved outside the layout pass it
+  /// was asked from. That is the path every tab switch takes on a Mac with Reduce Motion on, and
+  /// there it left the content view sized for an intermediate height: the window 363 pt tall with
+  /// a 475 pt content view, the tab drawn through it and its own tab bar above the window's top
+  /// edge — out of reach, so no further click could switch tabs, until Cida was relaunched. This
+  /// harness does not reproduce that failure (the app's window is also on screen there); the
+  /// invariant it pins is the one that broke, and the field reproduction is the app's
+  /// `--settings-tabs-cycle` walk. Whichever path runs, the window and the tab it holds end a
+  /// switch the same size, with the tab against the window's top edge.
+  func testSettingsTabsSurviveReduceMotion() throws {
+    // The class pins Reduce Motion off for the motion tests; this one needs it on.
+    CidaMotion.reducesMotionOverride = true
+    defer { CidaMotion.reducesMotionOverride = false }
+    FontRegistrar.registerBundledFonts()
+    let model = AppModel(settings: .designPreview)
+    let controller = SettingsWindowFactory.makeWindowController(
+      model: model, updates: UpdateState(), maxContentHeight: 2_000)
+    let window = try XCTUnwrap(controller.window)
+    retainedTestWindows.append(window)
+    window.alphaValue = 0
+    window.orderBack(nil)
+    // The window the app shows is key; the tab switch takes a different AppKit path when it is.
+    window.makeKey()
+    RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+    let contentView = try XCTUnwrap(window.contentView)
+    let host = try XCTUnwrap(
+      ([contentView] + contentView.subviews).first { $0.accessibilityLabel() == "设置窗口内容" })
+
+    for tab in [SettingsTab.translation, .shortcuts, .general, .model, .shortcuts] {
+      model.settingsTab = tab
+      RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+      let contentHeight = window.contentRect(forFrameRect: window.frame).height
+      XCTAssertEqual(
+        contentView.frame.height, contentHeight, accuracy: 1,
+        "\(tab.rawValue): 内容视图就是窗口的内容区，不比窗口高")
+      XCTAssertEqual(
+        host.convert(host.bounds, to: nil).maxY, window.frame.height, accuracy: 0.5,
+        "\(tab.rawValue): 标签从窗口顶边开始")
+      XCTAssertEqual(
+        host.frame.height, contentView.frame.height, accuracy: 1,
+        "\(tab.rawValue): 标签填满窗口")
+    }
+    assertTestProcessIsNotFrontmost()
+  }
+
   /// A growing pane must not scroll its text up and snap it back on every new
   /// line, and a result that outgrows the pane stays at its start.
   func testStreamingResultDoesNotBounceWhileThePaneGrows() async throws {

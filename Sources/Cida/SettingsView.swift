@@ -211,7 +211,22 @@ final class SettingsContentController: NSViewController {
 
   override func viewDidLayout() {
     super.viewDidLayout()
+    fitContainerToWindow()
     placeHost(in: view)
+  }
+
+  /// A content view is exactly as big as the window's content area, never bigger: a container left
+  /// at a height the content asked for on its way holds the whole tab above the window's top edge,
+  /// which is a blank page whose tab bar cannot even be clicked. Anything that leaves it like that
+  /// is put back here, and said out loud, because the visible result is unrecoverable without a
+  /// relaunch.
+  private func fitContainerToWindow() {
+    guard let window = view.window else { return }
+    let size = window.contentRect(forFrameRect: window.frame).size
+    guard size.height > 0, view.frame.size != size else { return }
+    Self.logger.notice(
+      "settings container repaired from \(self.view.frame.height, privacy: .public) to \(size.height, privacy: .public)")
+    view.frame = NSRect(origin: view.frame.origin, size: size)
   }
 
   /// The host sits at the container's top-left, at the height the content asked for.
@@ -250,13 +265,24 @@ final class SettingsContentController: NSViewController {
     let target = NSRect(
       x: window.frame.minX, y: window.frame.maxY - frameHeight, width: window.frame.width,
       height: frameHeight)
-    if height > hostHeight { setHostHeight(height) }
     let duration =
       window.isVisible ? CidaMotion.resolvedDuration(CidaMotion.heightSeconds, in: window) : 0
     guard duration > 0 else {
-      finishMove(move, of: window, at: target, contentHeight: height)
+      // No animation (Reduce Motion, or a window nobody sees): the whole move happens on the next
+      // turn of the run loop rather than inside this layout pass. Resizing the window from inside
+      // the geometry callback it was asked from left the content view sized for an intermediate
+      // height on a Mac with Reduce Motion on — the window was 363 pt tall with a 475 pt content
+      // view, so the tab was drawn through it, its own tab bar above the window's top edge and out
+      // of reach; only a relaunch brought the window back.
+      DispatchQueue.main.async { [weak self, weak window] in
+        MainActor.assumeIsolated {
+          guard let window else { return }
+          self?.finishMove(move, of: window, at: target, contentHeight: height)
+        }
+      }
       return
     }
+    if height > hostHeight { setHostHeight(height) }
     NSAnimationContext.runAnimationGroup { context in
       context.duration = duration
       context.timingFunction = CidaMotion.easeOut

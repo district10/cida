@@ -231,7 +231,10 @@ final class CidaAppDelegate: NSObject, NSApplicationDelegate {
       updater.start(presenter: self)
     }
 
-    if launchOptions.displaysInteractiveAutomationUI {
+    if let cycleOutputURL = launchOptions.settingsTabsCycleOutputURL {
+      showSettings()
+      runSettingsTabsCycle(outputDirectory: cycleOutputURL)
+    } else if launchOptions.displaysInteractiveAutomationUI {
       showPanel()
     } else if launchOptions.isAutomation {
       prepareAutomationPanel()
@@ -876,6 +879,139 @@ final class CidaAppDelegate: NSObject, NSApplicationDelegate {
       NSApp.terminate(nil)
     }
   }
+
+  // MARK: - Settings tab cycle (diagnostic)
+
+  /// Clicks through the Settings tabs the way the user's own mouse does — real events on the HID
+  /// path, the window visible, so every switch runs the real height move — and writes one picture
+  /// and a stream of geometry samples per step into `outputDirectory`, then quits. Offscreen
+  /// automation opens Settings without showing it, which skips the animated path entirely; this is
+  /// how a layout that only breaks on another Mac can be looked at on that Mac
+  /// (`docs/fork-notes.md` §七).
+  private func runSettingsTabsCycle(outputDirectory: URL) {
+    // The tab centers in the window's own coordinates: four 76 × 46 buttons with 4 pt gaps,
+    // centered in the 560 pt window, under the 40 pt title bar (`Design/spec/settings.md` §一).
+    let tabs: [(SettingsTab, CGPoint)] = [
+      (.model, CGPoint(x: 160, y: 63)), (.translation, CGPoint(x: 240, y: 63)),
+      (.shortcuts, CGPoint(x: 320, y: 63)), (.general, CGPoint(x: 400, y: 63)),
+    ]
+    Task { @MainActor [weak self] in
+      guard let self else { return }
+      try? await Task.sleep(for: .milliseconds(1_500))
+      var lines = [
+        "screen=\(NSScreen.main.map { "\($0.frame) visible=\($0.visibleFrame)" } ?? "none")",
+        "permissions accessibility=\(model.isSelectionAccessGranted) screenRecording=\(model.isCaptureAccessGranted)",
+        "start \(settingsGeometrySample() ?? "none")",
+      ]
+      @MainActor func sample(_ label: String, ticks: Int) async {
+        for tick in 0..<ticks {
+          try? await Task.sleep(for: .milliseconds(100))
+          if let sample = settingsGeometrySample() {
+            lines.append("\(label) t=\(tick * 100) \(sample)")
+          }
+        }
+      }
+      // One click at a time, the way someone reads a page before moving on.
+      for (tab, point) in tabs.dropFirst() {
+        clickSettingsWindow(fromTop: point)
+        lines.append(
+          "clicked-\(tab.rawValue) title=\(settingsWindowTitle()) cursor=\(NSEvent.mouseLocation)")
+        await sample("click-\(tab.rawValue)", ticks: 16)
+        writeSettingsSnapshot(to: outputDirectory, name: "click-\(tab.rawValue)")
+      }
+      // Then clicks back to back, the way someone hunting for a page clicks.
+      for (_, point) in [
+        tabs[2], tabs[1], tabs[2], tabs[3], tabs[2], tabs[0], tabs[2],
+      ] {
+        clickSettingsWindow(fromTop: point)
+        try? await Task.sleep(for: .milliseconds(160))
+      }
+      await sample("rapid", ticks: 20)
+      writeSettingsSnapshot(to: outputDirectory, name: "rapid-end")
+      try? FileManager.default.createDirectory(
+        at: outputDirectory, withIntermediateDirectories: true)
+      try? lines.joined(separator: "\n").appending("\n").write(
+        to: outputDirectory.appendingPathComponent("geometry.txt"), atomically: true,
+        encoding: .utf8)
+      NSApp.terminate(nil)
+    }
+  }
+
+  /// Posts a mouse click at a point measured from the Settings window's top-left corner, by every
+  /// route available to the process: Quartz to the HID tap and to our own pid (both need the
+  /// Accessibility grant), then AppKit's own event queue, which needs nothing and is what reaches
+  /// the button when the grant is missing. The window's title follows the selected tab, so the
+  /// caller can tell which route landed.
+  private func clickSettingsWindow(fromTop offset: CGPoint) {
+    guard
+      let window = NSApp.windows.first(where: { $0.accessibilityIdentifier() == "settings-window" }),
+      let mainHeight = NSScreen.screens.first?.frame.height
+    else { return }
+    let quartzPoint = CGPoint(
+      x: window.frame.minX + offset.x, y: mainHeight - (window.frame.maxY - offset.y))
+    if let source = CGEventSource(stateID: .hidSystemState) {
+      for type in [CGEventType.mouseMoved, .leftMouseDown, .leftMouseUp] {
+        if let event = CGEvent(
+          mouseEventSource: source, mouseType: type, mouseCursorPosition: quartzPoint,
+          mouseButton: .left)
+        {
+          event.postToPid(getpid())
+          event.post(tap: .cghidEventTap)
+        }
+        usleep(20_000)
+      }
+    }
+    let windowPoint = CGPoint(x: offset.x, y: window.frame.height - offset.y)
+    let timestamp = ProcessInfo.processInfo.systemUptime
+    for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+      guard
+        let event = NSEvent.mouseEvent(
+          with: type, location: windowPoint, modifierFlags: [], timestamp: timestamp,
+          windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
+          pressure: 1)
+      else { continue }
+      NSApp.postEvent(event, atStart: false)
+      RunLoop.current.run(until: Date().addingTimeInterval(0.03))
+    }
+  }
+
+  private func settingsWindowTitle() -> String {
+    NSApp.windows.first(where: { $0.accessibilityIdentifier() == "settings-window" })?.title
+      ?? "none"
+  }
+
+  /// One reading of the Settings window and the view that holds the tab, as a single line.
+  private func settingsGeometrySample() -> String? {
+    guard
+      let window = NSApp.windows.first(where: { $0.accessibilityIdentifier() == "settings-window" }),
+      let contentView = window.contentView
+    else { return nil }
+    var host: NSView?
+    func find(_ view: NSView) {
+      if host == nil, view.accessibilityLabel() == "设置窗口内容" { host = view }
+      for sub in view.subviews { find(sub) }
+    }
+    find(contentView)
+    let format = { (value: CGFloat) in String(format: "%.1f", value) }
+    guard let host else {
+      return "window=\(format(window.frame.height)) visible=\(window.isVisible) host=none"
+    }
+    let top = host.convert(host.bounds, to: nil).maxY
+    return
+      "window=\(format(window.frame.height)) visible=\(window.isVisible) container=\(format(contentView.frame.height)) hostY=\(format(host.frame.minY)) hostH=\(format(host.frame.height)) gap=\(format(window.frame.height - top))"
+  }
+
+  private func writeSettingsSnapshot(to directory: URL, name: String) {
+    guard
+      let window = NSApp.windows.first(where: { $0.accessibilityIdentifier() == "settings-window" })
+    else { return }
+    try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    do {
+      try SnapshotWriter.write(window: window, to: directory.appendingPathComponent("\(name).png"))
+    } catch {
+      fputs("Settings cycle snapshot failed: \(error)\n", stderr)
+    }
+  }
 }
 
 
@@ -1052,6 +1188,9 @@ private struct LaunchOptions {
   let automationOpenAIEndpoint: String?
   let automationSettingsNamespace: String?
   let lifecycleLogURL: URL?
+  /// Diagnostic (`docs/fork-notes.md` §七): show the Settings window the way a user's click shows
+  /// it, walk the tabs, and write a picture and the geometry of every step into this directory.
+  let settingsTabsCycleOutputURL: URL?
   /// UI automation pins both permissions to "not granted" for a Settings
   /// pixel baseline, whatever the guest has granted.
   let automationDeniesPermissions: Bool
@@ -1272,6 +1411,8 @@ private struct LaunchOptions {
 
     snapshotOutputURL = arguments.value(after: "--snapshot-output")
       .map { URL(fileURLWithPath: $0) }
+    settingsTabsCycleOutputURL = arguments.value(after: "--settings-tabs-cycle")
+      .map { URL(fileURLWithPath: $0, isDirectory: true) }
     inputInteractionOutputURL = arguments.value(after: "--input-interaction-output")
       .map { URL(fileURLWithPath: $0) }
     snapshotDelayMilliseconds = max(
