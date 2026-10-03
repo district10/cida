@@ -160,6 +160,58 @@ final class SelectionNoteTests: XCTestCase {
     XCTAssertEqual(events(), ["note-failed"])
   }
 
+  // MARK: - 结果笔记
+
+  /// A generated result is kept beside its source, quietly: no pill — nobody pressed a note key
+  /// for this one — and the event says what was written (`Design/spec/notes.md` §四).
+  func testAGeneratedResultIsSavedQuietlyWithItsSource() throws {
+    let (note, feedbacks, events) = makeNote(selection: nil, application: nil)
+    note.saveResult(
+      text: "原文", note: "译文", kind: .translation,
+      application: NoteSourceApplication(name: "Safari", bundleIdentifier: "com.apple.Safari"),
+      settings: settings())
+
+    let saved = try savedNotes()
+    XCTAssertEqual(saved.count, 1)
+    XCTAssertEqual(saved[0].text, "原文")
+    XCTAssertEqual(saved[0].note, "译文")
+    XCTAssertEqual(saved[0].source, "translation")
+    XCTAssertEqual(saved[0].app?.bundleIdentifier, "com.apple.Safari")
+    XCTAssertTrue(feedbacks().isEmpty, "自动记下的一条不该弹胶囊")
+    XCTAssertEqual(events(), ["note-saved-result source=translation"])
+  }
+
+  /// The same source generated twice into different words is two notes: the pair is the unit,
+  /// not the source.
+  func testTwoResultsForTheSameSourceAreTwoNotes() throws {
+    let (note, _, events) = makeNote(selection: nil, application: nil)
+    note.saveResult(
+      text: "原文", note: "First", kind: .improvement, application: nil, settings: settings())
+    note.saveResult(
+      text: "原文", note: "Second", kind: .improvement, application: nil, settings: settings())
+
+    XCTAssertEqual(try savedNotes().map(\.note), ["First", "Second"])
+    XCTAssertEqual(
+      events(), ["note-saved-result source=improvement", "note-saved-result source=improvement"])
+  }
+
+  /// A failed write is the one thing that speaks, even for a quiet save.
+  func testAFailedResultSaveIsReported() throws {
+    let blocked = directory.appendingPathComponent("blocked.jsonl")
+    FileManager.default.createFile(atPath: blocked.path, contents: Data("x".utf8))
+    try FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: blocked.path)
+
+    let (note, feedbacks, events) = makeNote(selection: nil, application: nil)
+    note.saveResult(
+      text: "原文", note: "译文", kind: .translation, application: nil,
+      settings: settings(path: blocked.path))
+
+    XCTAssertTrue(
+      feedbacks().last??.text.hasPrefix("存入失败：") == true,
+      "应当报告失败：\(String(describing: feedbacks().last))")
+    XCTAssertEqual(events(), ["note-result-failed source=translation"])
+  }
+
   // MARK: - The panel's ⌘S
 
   /// Only ⌘S: ⇧⌘S and a bare s are not this action, and neither is ⌘C.

@@ -1,6 +1,6 @@
 # 存为笔记
 
-2026-10-02 加入（本仓库 fork 的功能：辞达原本的翻译/润色一个不动，另加一条「把选中的文字记下来」的路）。与 `spec/panel.md`、`spec/configuration.md` 同一套界面与配置约定；状态见 [`boards/`](../boards/)。
+2026-10-02 加入（本仓库 fork 的功能：辞达原本的翻译/润色一个不动，另加一条「把选中的文字记下来」的路）。2026-10-03 起翻译与改写的结果也默认记下来（§四），默认位置改为 `~/.cida/items.jsonl`。与 `spec/panel.md`、`spec/configuration.md` 同一套界面与配置约定；状态见 [`boards/`](../boards/)。
 
 为什么：日常真正想留下的是"看到一句值得记的话"，原文比译文更值钱；翻译是顺手，笔记是目的。所以笔记走最短的路——按一下键就落盘，不弹面板、不请求模型、不动前台焦点。
 
@@ -27,7 +27,7 @@
 ## 二、落盘
 
 - 一行一条 JSON，UTF-8，`\n` 结尾；只追加，从不改写（`O_APPEND` 加一次 `write`，所以辞达和 Jotbox 可以同时往同一个文件里写而不会互相覆盖）。
-- 默认写进 Jotbox 的 `~/Library/Application Support/Jotbox/inbox.jsonl`：两个工具一份收件箱——辞达负责划词，Jotbox 负责剪贴板，格式本来就是同一套。改路径用设置里的字段或 `config set note-file=~/Documents/notes.jsonl`（支持 `~`；留空回到默认）。
+- 默认写进 `~/.cida/items.jsonl`：辞达自己的收件箱，不依赖别的工具。格式仍是 Jotbox 那一套，所以想与它共用一份时把 `note-file` 指向 `~/Library/Application Support/Jotbox/inbox.jsonl` 即可，旧数据继续读得到。改路径用设置里的字段或 `config set note-file=~/Documents/notes.jsonl`（支持 `~`；留空回到默认）。
 - 字段与 Jotbox 的 `Record` 一致，`schema` 为 1；键按字母序，中文与斜杠不转义（`jq`、`grep` 直接可用）：
 
   | 字段 | 值 |
@@ -35,9 +35,9 @@
   | `schema` | `1` |
   | `id` | `UUID().uuidString` |
   | `ts` | ISO 8601，毫秒精度，带本地时区偏移，如 `2026-10-02T22:03:05.123+08:00` |
-  | `source` | `"selection"` 或 `"clipboard"`（辞达写这两种；Jotbox 另有 `cli`） |
+  | `source` | `"selection"`、`"clipboard"`、`"translation"` 或 `"improvement"`（前两种是 ⌥N / ⌘S，后两种见 §四；Jotbox 另有 `cli`） |
   | `text` | 原文，不清洗（首尾空白按读数路径的规则裁掉，见 `SelectedText.normalized`） |
-  | `note` | `null`（辞达不写备注；Jotbox 的备注流程用它） |
+  | `note` | `null`，或 §四 自动记下的译文/改写结果（Jotbox 的备注流程也用这个字段） |
   | `app` | `{name, bundle_id}` 或 `null` |
   | `copied` | `null`（"这份剪贴板什么时候从哪复制的"需要常驻轮询 changeCount，辞达不做） |
 
@@ -51,20 +51,42 @@
 - 记录里的 `app` 是"唤起面板时所在的应用"：面板显示时前台是辞达自己，所以唤起的那一刻记下它，面板隐藏时清空（`AppLifecycle.panelSourceApplication`）。
 - ⌘S 与 ⌘C、⌘, 同级：只在面板是 key window 时生效，输入法正在组字时先让给输入法。
 
-## 四、设置与命令行
+## 四、翻译与改写的结果也存进笔记
+
+2026-10-03 加入，**默认开启**：既然翻译和改写也是"值得留下的那一刻"，两者就落在同一份文件里，事后 `jq` 一处回看即可。设置里的「存结果」或 `config set note-results=false` 关掉后，辞达与从前完全一样，只存 ⌥N / ⌘S 的那两种。
+
+- 记的是**一次生成完成的原文与结果**，每次成功追一行：
+
+  | 入口 | `source` | 触发 |
+  | --- | --- | --- |
+  | 面板「翻译」（⌥A 带入的选区、⌥S 截图文字、手输的也算） | `"translation"` | 生成成功（`completed`）时 |
+  | 面板「改进」 | `"improvement"` | 同上 |
+  | 改进并替换（⌥F） | `"improvement"` | 模型结果拿到、替换动作已发出时（替换是否被确认不影响记账） |
+
+- 字段：`text` 是原文（真正送进模型的那段），`note` 是译文/改写结果——与 ⌥N 的"原文进 `text`"一致，结果不会与原文挤在同一个字段里。`app` 是文字来自的应用（面板唤起时所在的应用；⌥F 按下时所在的应用），拿不到时为 `null`。
+- 翻译、改进的提示词、模型调用与面板行为一个不动；只多一次文件追加。
+- 静默：没有人为这一条按过键，所以成功不弹提示胶囊；写失败时胶囊说「存入失败：…」，日志记 `note-result-failed source=…`；成功记 `note-saved-result source=…`，太长跳过记 `note-result-too-long source=…`。
+- 去重（§二）把 `text`、`app` 与 `note` 一起比较：同一段原文生成出不同结果会各存一行；完全相同的一条（60 秒内）只留一行。
+- 原文超过 10 万字符不自动存：笔记文件是笔记本，不是每份长文档的副本；这种长度改用 ⌘S 自己决定存不存。
+- 原处翻译/整窗翻译（⌥D）**不存**：它一次译一屏文字，是阅读的帮手，不是一次"要留下"的动作；要留其中一段就用 ⌥A 选中它。
+
+## 五、设置与命令行
 
 - 设置 → 快捷键 → 快捷键组新增一行「存为笔记 · 把选中文字存进笔记文件」，与其它四个一样可录制、可清空、不能重复。
-- 同页新增「笔记」组，一行「笔记文件 · 留空写到 Jotbox 的收件箱」：输入框占满控件列，默认路径当占位符显示，失焦时去掉首尾空白；留空即回默认。
-- 命令行新增两个字段：
+- 同页新增「笔记」组：
+  - 一行「笔记文件 · 留空用默认位置」：输入框占满控件列，默认路径当占位符显示，失焦时去掉首尾空白；留空即回默认。
+  - 一行开关「存结果 · 翻译与改写的结果也写进笔记」，对应 §四，默认开。
+- 命令行新增三个字段：
 
   ```sh
   cida config set note-shortcut=control+option+n   # none 表示不设置
   cida config set note-file=~/Documents/notes.jsonl
-  cida config unset note-file                      # 回到 Jotbox 的默认位置
+  cida config unset note-file                      # 回到默认位置（~/.cida/items.jsonl）
+  cida config set note-results=false               # 关掉 §四 的自动记录；unset 回到开
   ```
 
-## 五、不变的东西
+## 六、不变的东西
 
-- 翻译、改进、截图翻译、原处翻译、整窗翻译与它们的快捷键、提示词、模型配置全部照旧；不设 note-shortcut 也不影响它们。
+- 翻译、改进、截图翻译、原处翻译、整窗翻译与它们的快捷键、提示词、模型配置全部照旧（关掉「存结果」后与从前完全一样）；不设 note-shortcut 也不影响它们。
 - 不新增权限：辅助功能仍是可选的（没有它走复制兜底），不申请通知，不联网。
 - 不记历史、不建索引：笔记文件本身就是全部状态，辞达不读它（除了判重读一下文件尾部 8KB）。

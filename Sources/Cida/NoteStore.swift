@@ -54,6 +54,13 @@ struct NoteDraft: Equatable, Sendable {
   }
 }
 
+/// What a result note records besides the text itself (`Design/spec/notes.md` §四): the two
+/// actions whose output is kept beside its source.
+enum NoteResultKind: String, Sendable {
+  case translation
+  case improvement
+}
+
 /// One line of the notes file, read back.
 struct SavedNote: Codable, Equatable, Sendable {
   var schema: Int
@@ -108,18 +115,22 @@ enum NoteStoreError: Error, Equatable {
   }
 }
 
-/// Appends notes as one JSON line each. The format is Jotbox's (`Design/spec/notes.md`), so
-/// Cida's selection notes and Jotbox's clipboard notes land in one file the user owns.
+/// Appends notes as one JSON line each. The line shape is Jotbox's (`Design/spec/notes.md`), so
+/// pointing `note-file` at Jotbox's inbox puts both tools' notes in one file the user owns.
 ///
 /// `O_APPEND` with a single write per line is what makes two writers safe: neither can overwrite
 /// the other's lines, whatever order they arrive in.
 struct NoteStore: Sendable {
-  /// Where notes go when the user has not named a file: Jotbox's inbox, which already speaks
-  /// this format.
+  /// Where notes go when the user has not named a file: Cida's own inbox, which Jotbox's format
+  /// already speaks.
   static var defaultFileURL: URL {
     URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
-      .appendingPathComponent("Library/Application Support/Jotbox/inbox.jsonl")
+      .appendingPathComponent(".cida/items.jsonl")
   }
+
+  /// A source this long is not kept beside its result (`Design/spec/notes.md` §四): a notebook
+  /// does not need a copy of every long document, and one such line would dwarf the file.
+  static let maximumResultCharacters = 100_000
 
   /// The same text from the same application inside this window is one press too many, not two
   /// notes.
@@ -161,6 +172,10 @@ struct NoteStore: Sendable {
 
   /// Whether the file's most recent notes already hold this text, from this application, inside
   /// the duplicate window. Only the end of the file is read, so a long inbox costs nothing.
+  ///
+  /// A draft without a `note` matches any saved note of the same text, which is how ⌥N keeps
+  /// behaving as before; a draft with one — a generated result — matches only the same result, so
+  /// regenerating a translation into different words is a new note rather than a repeat.
   func isRecentDuplicate(_ draft: NoteDraft) -> Bool {
     guard let tail = try? Self.tail(of: fileURL, bytes: Self.duplicateTailBytes) else { return false }
     for line in tail.split(separator: 0x0A).reversed() {
@@ -170,7 +185,8 @@ struct NoteStore: Sendable {
       let age = draft.timestamp.timeIntervalSince(savedAt)
       if age > Self.duplicateWindow { return false }
       if note.text == draft.text,
-        note.app?.bundleIdentifier == draft.application?.bundleIdentifier
+        note.app?.bundleIdentifier == draft.application?.bundleIdentifier,
+        draft.note == nil || note.note == draft.note
       {
         return true
       }

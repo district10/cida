@@ -11,7 +11,8 @@ struct NoteFeedback: Equatable {
 ///
 /// It is Cida's shortest path: no panel, no request, no focus change. The selection comes from
 /// the same reader ⌥A uses, so an application that cannot answer through Accessibility is still
-/// read through a temporary ⌘C.
+/// read through a temporary ⌘C. The same file also takes the results of 翻译 and 改进 (§四),
+/// which is why the store and the file lookup live here rather than with the key handler.
 @MainActor
 final class SelectionNote {
   private let defaultStore: NoteStore
@@ -83,15 +84,9 @@ final class SelectionNote {
     text: String, application: NoteSourceApplication?, source: String = "selection",
     settings: CidaSettings
   ) {
-    let store = store(for: settings)
     let draft = NoteDraft(text: text, source: source, application: application, note: nil)
-    guard !store.isRecentDuplicate(draft) else {
-      onFeedback(NoteFeedback(text: "刚刚已存过这条", dismissAfter: CidaHintPanel.briefSeconds))
-      recordEvent("note-duplicate")
-      return
-    }
-    do {
-      try store.append(draft)
+    switch append(draft, settings: settings) {
+    case .written:
       let name = application?.name
       let origin = source == "clipboard" ? "剪贴板" : name
       onFeedback(
@@ -99,12 +94,52 @@ final class SelectionNote {
           text: origin.map { "已存入笔记 · \($0)" } ?? "已存入笔记",
           dismissAfter: CidaHintPanel.briefSeconds))
       recordEvent("note-saved source=\(draft.source)")
+    case .duplicate:
+      onFeedback(NoteFeedback(text: "刚刚已存过这条", dismissAfter: CidaHintPanel.briefSeconds))
+      recordEvent("note-duplicate")
+    case .failed(let reason):
+      onFeedback(NoteFeedback(text: "存入失败：\(reason)", dismissAfter: 2.5))
+      recordEvent("note-failed")
+    }
+  }
+
+  /// Keeps a completed translation or improvement beside its source (`Design/spec/notes.md` §四):
+  /// `text` is what the model was given, `note` is what came back. Quietly — nobody pressed a
+  /// note key for this one — except when the write fails, which the pill has to say rather than
+  /// lose the note without a word.
+  func saveResult(
+    text: String, note: String, kind: NoteResultKind, application: NoteSourceApplication?,
+    settings: CidaSettings
+  ) {
+    let draft = NoteDraft(text: text, source: kind.rawValue, application: application, note: note)
+    switch append(draft, settings: settings) {
+    case .written:
+      recordEvent("note-saved-result source=\(kind.rawValue)")
+    case .duplicate:
+      recordEvent("note-result-duplicate source=\(kind.rawValue)")
+    case .failed(let reason):
+      onFeedback(NoteFeedback(text: "存入失败：\(reason)", dismissAfter: 2.5))
+      recordEvent("note-result-failed source=\(kind.rawValue)")
+    }
+  }
+
+  private enum AppendOutcome {
+    case written
+    case duplicate
+    /// The user-facing reason, as `NoteStoreError.message` or the system's own words.
+    case failed(String)
+  }
+
+  private func append(_ draft: NoteDraft, settings: CidaSettings) -> AppendOutcome {
+    let store = store(for: settings)
+    guard !store.isRecentDuplicate(draft) else { return .duplicate }
+    do {
+      try store.append(draft)
+      return .written
     } catch let error as NoteStoreError {
-      onFeedback(NoteFeedback(text: "存入失败：\(error.message)", dismissAfter: 2.5))
-      recordEvent("note-failed")
+      return .failed(error.message)
     } catch {
-      onFeedback(NoteFeedback(text: "存入失败：\(error.localizedDescription)", dismissAfter: 2.5))
-      recordEvent("note-failed")
+      return .failed(error.localizedDescription)
     }
   }
 

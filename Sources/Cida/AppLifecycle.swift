@@ -70,6 +70,13 @@ final class CidaAppDelegate: NSObject, NSApplicationDelegate {
       saveNote: { [weak self] text in
         self?.savePanelNote(text)
       },
+      saveResultNote: { [weak self] record in
+        guard let self else { return }
+        saveGeneratedResult(
+          source: record.source, result: record.result,
+          kind: record.mode == .translate ? .translation : .improvement,
+          application: panelSourceApplication)
+      },
       selectionAccess: launchOptions.selectionAccess,
       captureAccess: launchOptions.captureAccess,
       lastModelServiceCheck: launchOptions.persistsSettings
@@ -113,8 +120,17 @@ final class CidaAppDelegate: NSObject, NSApplicationDelegate {
       model.importImprovementResult(result)
       panelController?.show(preservingMode: true)
     }
+    operation.onGenerated = { [weak self] source, output in
+      guard let self else { return }
+      saveGeneratedResult(
+        source: source, result: output, kind: .improvement,
+        application: improvementSourceApplication)
+    }
     return operation
   }()
+  /// The application 改进并替换 was pressed in: its result is noted with that name, since the
+  /// clipboard dance may finish while another application is frontmost.
+  private var improvementSourceApplication: NoteSourceApplication?
 
   /// The layer shortcut with ⇧: the whole window (`Design/spec/translation-layer.md` §三).
   private var layerWindowHotKey: GlobalHotKey?
@@ -410,6 +426,23 @@ final class CidaAppDelegate: NSObject, NSApplicationDelegate {
       text: trimmed, application: panelSourceApplication, settings: model.settings)
   }
 
+  /// A completed translation or improvement goes into the notes file beside its source when the
+  /// setting says so (`Design/spec/notes.md` §四). Nobody pressed a note key for this one, so it
+  /// is quiet: the file is the record, and only a failed write speaks through the pill.
+  private func saveGeneratedResult(
+    source: String, result: String, kind: NoteResultKind, application: NoteSourceApplication?
+  ) {
+    guard model.settings.noteResults else { return }
+    guard let text = SelectedText.normalized(source), let output = SelectedText.normalized(result)
+    else { return }
+    guard text.count <= NoteStore.maximumResultCharacters else {
+      logShortcut("note-result-too-long source=\(kind.rawValue)")
+      return
+    }
+    selectionNote.saveResult(
+      text: text, note: output, kind: kind, application: application, settings: model.settings)
+  }
+
   private func handleImprovementShortcut() {
     guard !isCapturing, !isReadingSelection else { return }
     if selectionImprovement.isRunning { selectionImprovement.cancel(); return }
@@ -422,6 +455,9 @@ final class CidaAppDelegate: NSObject, NSApplicationDelegate {
     guard !model.needsModelConfiguration else { showPanel(); return }
     guard panelController?.isVisible != true else { return }
     improvementScreen = PanelController.activeScreen()
+    // Read the application before the replacement starts: its copy-and-paste may finish while
+    // another application is frontmost, but the result belongs to where the user was working.
+    improvementSourceApplication = SelectionNote.currentApplication()
     selectionImprovement.trigger(settings: model.settings)
   }
 

@@ -226,9 +226,13 @@ struct CidaSettings: Equatable, Sendable {
   /// The combination that saves the selection as a note without showing the panel
   /// (`Design/spec/notes.md`).
   var noteShortcut: GlobalShortcut? = .optionN
-  /// Where selection notes are written. Empty means Jotbox's inbox (`NoteStore.defaultFileURL`),
-  /// which already speaks the format; a path (`~` allowed) puts them somewhere else.
+  /// Where selection notes are written. Empty means Cida's own inbox
+  /// (`NoteStore.defaultFileURL`), which Jotbox's format already speaks; a path (`~` allowed)
+  /// puts them somewhere else, Jotbox's inbox included.
   var noteFile = ""
+  /// Whether a completed translation or improvement is kept beside its source in the same file
+  /// (`Design/spec/notes.md` §四). On by default: a collector wants both halves.
+  var noteResults = true
 
   /// Whether requests can be sent (`Design/spec/configuration.md`): a valid endpoint, a model,
   /// and a key unless the endpoint is on this Mac or `auth` is `none`.
@@ -343,6 +347,7 @@ extension CidaSettings: Codable {
     case improvementShortcut
     case noteShortcut
     case noteFile
+    case noteResults
     case promptContractVersion
     /// 1.0's provider preset, model and custom endpoint; read once to build `modelService`.
     case legacyProvider = "provider"
@@ -397,6 +402,7 @@ extension CidaSettings: Codable {
     improvementShortcut = try decodeShortcut(.improvementShortcut, default: .optionF)
     noteShortcut = try decodeShortcut(.noteShortcut, default: .optionN)
     noteFile = try container.decodeIfPresent(String.self, forKey: .noteFile) ?? ""
+    noteResults = try container.decodeIfPresent(Bool.self, forKey: .noteResults) ?? true
     if !container.contains(.improvementShortcut),
       [shortcut, captureShortcut, layerShortcut, layerShortcut?.addingShift].contains(.optionF)
     {
@@ -413,6 +419,7 @@ extension CidaSettings: Codable {
     try container.encode(foreignLanguage, forKey: .foreignLanguage)
     try container.encode(launchAtLogin, forKey: .launchAtLogin)
     try container.encode(noteFile, forKey: .noteFile)
+    try container.encode(noteResults, forKey: .noteResults)
     for (value, key) in [
       (shortcut, CodingKeys.shortcut), (captureShortcut, .captureShortcut),
       (layerShortcut, .layerShortcut), (improvementShortcut, .improvementShortcut),

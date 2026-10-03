@@ -20,28 +20,34 @@
 | 划词存笔记 | **⌥N** | 读选中文字（与 ⌥A 同一条读数路径），追一行，提示胶囊「已存入笔记 · Safari」；不弹面板、不请求模型、不动焦点、不动剪贴板 |
 | 剪贴板存笔记 | **⌥N**（没选中时） | 剪贴板里有文本就存它，`source` 记 `"clipboard"`；一次按键覆盖"选中了/刚复制了"两种场合 |
 | 看完再存 | **⌥A** 开面板 → **⌘S**（或面板打开时按 ⌥N） | 存的是面板里那段文字（可编辑、可粘贴、可用 ⌥S 截图识别），`app` 记唤起面板时所在的应用 |
+| 翻译/改写自动入库 | 无需按键，默认开 | 每次生成成功后自动追一行：原文在 `text`，译文/改写结果在 `note`，`source` 记 `translation`/`improvement`；面板的翻译与改进、⌥F 的改进并替换都算，⌥D 原处翻译不算（一次一屏，太吵） |
 | 菜单栏 | 「存为笔记」 | 与其它动作并列，显示当前快捷键 |
-| 设置 | 快捷键 → 「存为笔记」行 + 「笔记」组（笔记文件路径） | |
-| 命令行 | `config set note-shortcut=…` / `note-file=…` | 与上游其它字段同一套 schema |
+| 设置 | 快捷键 → 「存为笔记」行 + 「笔记」组（笔记文件路径、存结果开关） | |
+| 命令行 | `config set note-shortcut=…` / `note-file=…` / `note-results=…` | 与上游其它字段同一套 schema |
 
 代码布局（对我们的后续迭代友好：**新文件永不与上游冲突**）：
 
 - 新增：`Sources/Cida/NoteStore.swift`（JSONL 追加 + 去重 + 时间格式）、`Sources/Cida/SelectionNote.swift`（动作本体）、
-  `Tests/CidaTests/{NoteStoreTests,SelectionNoteTests}.swift`、`Design/spec/notes.md`（设计说明）。
-- 改动（冲突面，共 ~120 行）：`AppLifecycle.swift`（热键/菜单/提示胶囊/面板文案接线）、`AppModel.swift`（`saveNote` 注入 + `saveNoteFromPanel`）、
-  `GlobalShortcut.swift`（`.saveNote` + `optionN`）、`Models.swift`（`noteShortcut`/`noteFile` + Codable）、
-  `ConfigurationFields.swift`（两个 CLI 字段）、`PanelWindow.swift`（`NoteShortcutRouting` + ⌘S 分支）、`SettingsView.swift`（一行 + 一组）。
+  `Tests/CidaTests/{NoteStoreTests,SelectionNoteTests}.swift`、`Design/spec/notes.md`（设计说明）、`scripts/package-fork-dmg.sh`（不公证的 DMG）。
+- 改动（冲突面，约 200 行）：`AppLifecycle.swift`（热键/菜单/提示胶囊/面板文案接线 + 结果入库）、`AppModel.swift`（`saveNote` 注入 + 完成钩子 + `saveNoteFromPanel`）、
+  `GlobalShortcut.swift`（`.saveNote` + `optionN`）、`Models.swift`（`noteShortcut`/`noteFile`/`noteResults` + Codable）、
+  `ConfigurationFields.swift`（三个 CLI 字段）、`PanelWindow.swift`（`NoteShortcutRouting` + ⌘S 分支）、`SettingsView.swift`（两行 + 一组 + 开关）、
+  `SelectionImprovement.swift`（`onGenerated` 回调）；设计面 `Design/spec/{notes,settings}.md` 与 `Design/boards/components.js`（设置板补上笔记组）。
 
-## 三、数据：与 Jotbox 共用一份 inbox
+## 三、数据：一份自己的收件箱
 
-默认写 `~/Library/Application Support/Jotbox/inbox.jsonl`（可用 `note-file` 或设置改）。一行一条 JSON，键按字母序，
-中文与斜杠不转义；字段与 Jotbox 的 `Record` 一致：`schema`(1) / `id` / `ts`(ISO 8601 带毫秒与时区) / `source` / `text` / `note` / `app{name,bundle_id}` / `copied`。
+默认写 `~/.cida/items.jsonl`（可用 `note-file` 或设置改）。想继续与 Jotbox 共用一份，把路径指回
+`~/Library/Application Support/Jotbox/inbox.jsonl` 即可——格式没变，旧数据不用迁移。
+一行一条 JSON，键按字母序，中文与斜杠不转义；字段与 Jotbox 的 `Record` 一致：`schema`(1) / `id` / `ts`(ISO 8601 带毫秒与时区) / `source` / `text` / `note` / `app{name,bundle_id}` / `copied`。
+`source` 是 `selection`、`clipboard`、`translation` 或 `improvement`（Jotbox 另有 `cli`）；`note` 平时是 `null`，
+自动入库的那两种把译文/改写结果放在这里，`text` 始终是原文。
 写入用 `O_APPEND` + 单次 `write`，所以辞达与 Jotbox（或任何别的写入者）可以同时追加而不会互相覆盖。
-60 秒内、同一个 App、完全相同的文本视为重复，只提示不重复写入。
+60 秒内、同一个 App、`text` 与 `note` 都相同才算重复，只提示不重复写入（所以同一段原文重新生成出不同结果会各留一行）。
 
 ```bash
-jq -c 'select(.source == "clipboard")' ~/Library/Application\ Support/Jotbox/inbox.jsonl
-jq -r '.app.name // "-"'  ~/Library/Application\ Support/Jotbox/inbox.jsonl | sort | uniq -c | sort -rn
+jq -c 'select(.source == "translation")' ~/.cida/items.jsonl        # 只看翻译
+jq -r 'select(.note) | "\(.text)\t\(.note)"' ~/.cida/items.jsonl    # 原文与译文/改写对照
+jq -r '.app.name // "-"'  ~/.cida/items.jsonl | sort | uniq -c | sort -rn
 ```
 
 ## 四、怎么构建、怎么装（本机 macOS 27 / Swift 6.3）
@@ -60,6 +66,12 @@ rm -rf "/Applications/Cida Dev.app"
 cp -R "build/Cida Dev.app" /Applications/
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "/Applications/Cida Dev.app"
 open "/Applications/Cida Dev.app"
+
+# 换机器：打包成 DMG（不公证，Apple Development 签名就够自己用；上游 scripts/build-dmg.sh 要 Developer ID + 公证票据，只有发版才有）
+CIDA_VARIANT=dev \
+CIDA_CODESIGN_IDENTITY="Apple Development: dvorak4tzx@gmail.com (XW4WQ3LXFF)" \
+  scripts/build-app.sh
+scripts/package-fork-dmg.sh "build/Cida Dev.app" build/Cida-Dev.dmg
 ```
 
 两点本机经验（换机器时照抄）：
@@ -76,6 +88,9 @@ open "/Applications/Cida Dev.app"
 
 - **辅助功能权限**给「辞达 Dev」：读选区靠它，读不到时要发的 ⌘C 兜底也靠它。按一次 ⌥N/⌥A 会自动打开 系统设置 → 隐私与安全性。
 - **菜单栏图标**默认被 macOS 放进"隐藏区"：点菜单栏右侧的 `»` 展开，按住 ⌘ 把「辞达」拖进菜单栏一次即可（位置会记住）。
+
+DMG 是 Apple Development 签名、没有公证，换机器第一次打开要**右键 →「打开」**（或在终端 `xattr -dr com.apple.quarantine "/Applications/Cida Dev.app"`），
+之后系统就记住这个 App 了；辅助功能与屏幕录制权限在新机器上要重新授予。
 
 ## 五、跟进上游
 
@@ -99,26 +114,32 @@ swift build -Xswiftc -warnings-as-errors && swift test
 | --- | --- | --- |
 | 划词（右键服务） | ✅ 换成 ⌥N | 更省事；macOS 26 起右键服务本身也要用户先去设置里勾选，见 `~/git/jotbox/docs/DESIGN.md` |
 | 剪贴板一键存 | ✅ ⌥N 回退 | 不必先切到菜单栏 |
-| 存之前补一句备注（写进 `note` 字段） | ❌ 未覆盖 | 面板可以编辑正文作为临时替代；要结构化备注就在面板加一个输入框 + 写入 `note`（设计上属于面板改动，要配 `Design/spec/panel.md` 更新） |
+| 翻译/改写的结果也留下 | ✅ 默认开 | 每次生成成功自动追一行（原文 `text` + 结果 `note`）；设置里的「存结果」或 `note-results=false` 可关 |
+| 存之前补一句备注（人写的，进 `note` 字段） | ❌ 未覆盖 | `note` 现在装自动入库的结果；人写的备注框还没做，要结构化备注得在面板加输入框（配 `Design/spec/panel.md` 更新） |
 | `copied{ts,app}`（这份剪贴板何时从哪复制） | ❌ 未覆盖 | 需要常驻轮询 `NSPasteboard.changeCount`（Jotbox 有，~40 行）；辞达不做，`copied` 恒为 `null` |
 | `jotbox add`（脚本/stdin 灌入） | ❌ 未覆盖 | 要的话给辞达 CLI 加一个 `note add` 子命令，走同一个 `NoteStore` |
 | 提示反馈、去重、可配路径、菜单栏、CLI 配置 | ✅ | |
 
-## 七、已验证 / 未验证（2026-10-02，本机 macOS 27.0 arm64）
+## 七、已验证 / 未验证（2026-10-03，本机 macOS 27.0 arm64）
 
-- ✅ `swift build -Xswiftc -warnings-as-errors` 干净；新增 22 个单测全绿（存储格式、去重、动作行为、⌘S 路由、面板接线、剪贴板回退）。
-- ✅ 全量 `swift test`：**只有 3 个失败，且在未改动的 `main` 上同样失败** —— 本机键盘是 dvorak(mod) 时，
+- ✅ `swift build -Xswiftc -warnings-as-errors` 干净；笔记相关单测（存储格式、去重含结果、动作行为、⌘S 路由、面板接线、剪贴板回退、结果入库、⌥F 回调、设置与 CLI 字段）全绿。
+- ✅ 全量 `swift test`：**只剩 2 个失败，且在未改动的 HEAD 上同样失败** —— 本机键盘是 dvorak(mod) 时，
   `GlobalShortcut.displayText` 显示的是按键实际字符（如 ⌥⇧E），而测试断言 US 位置名（⌥⇧D）。这是上游的既有问题，
   与笔记功能无关，值得给上游提 issue。
+- ✅ 设置界面：`Design/boards/components.js` 补齐了「存为笔记」行与「笔记」组（含「存结果」），
+  `Design/QACurrent/comparison-settings-shortcuts.png` 是原生截图与板的对照；`InteractionReproductionTests` 里
+  快捷键页高度那条旧断言（板 525pt）本来就是坏的，这次按新板高 727pt 修好，该用例整条通过。
 - ✅ 端到端：⌥A 开面板 → 填入文字 → ⌥N 落盘，记录 `source=selection`、`app=TextEdit`、时间戳正确，胶囊显示「已存入笔记 · TextEdit」。
-- ✅ 无权限路径：日志 `note-needs-accessibility`，并打开 系统设置 → 隐私与安全性。
+- ⚠️ 自动入库的端到端（真实模型）没跑：单测覆盖了"完成的生成才入库、结果与原文成对、失败不写"，但一条真实的翻译落盘要你本机用一次确认；
+  查 `log stream --predicate 'category == "shortcut"' | grep note-saved-result` 或直接 `tail -f ~/.cida/items.jsonl`。
 - ⚠️ 面板里的 **⌘S**：代码路径与已验证的"⌥N 在面板打开时"完全相同，且有单测覆盖路由判定（`NoteShortcutRouting`）；
   但这台机器上**合成键盘事件进不了任何 App**（辞达与 Jotbox 都一样，鼠标事件与 Carbon 全局热键可以），所以按键本身只能人工确认。
 - ⚠️ 划词读取本身要有辅助功能权限才能端到端跑通（TCC 无法程序化授予）。
+- ⚠️ 换机器安装：DMG 未公证，第一次打开要右键 →「打开」；权限要重新授予（见 §四）。
 
 ## 八、后续可以做的
 
-1. 结构化备注（面板备注框 + `note` 字段），见 §六。
+1. 人写的结构化备注（面板备注框 + `note` 字段的另一种用法），见 §六。
 2. `copied` 来源信息（轮询 changeCount 的小追踪器）。
 3. `cida note add`（stdin/参数灌入，给脚本与其它工具用）。
 4. 若上游接受了笔记功能，这份 fork 可以退化成"只用上游 + 一个配置文件"。

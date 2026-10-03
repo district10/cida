@@ -338,6 +338,7 @@ private struct SettingsBody: View {
         Hairline()
         SettingsGroup(title: "笔记") {
           NoteFileRow(model: model)
+          NoteResultsRow(model: model)
         }
         Hairline()
         SettingsGroup(title: "权限") {
@@ -1065,17 +1066,17 @@ private struct LaunchAtLoginRow: View {
   }
 }
 
-/// Where a note goes (`Design/spec/notes.md` §二). Empty means Jotbox's inbox, which already
-/// speaks the format; the placeholder shows that path while the field is empty.
+/// Where a note goes (`Design/spec/notes.md` §二). Empty means Cida's own inbox; the placeholder
+/// shows that path while the field is empty.
 private struct NoteFileRow: View {
   @Bindable var model: AppModel
   @FocusState private var isFocused: Bool
 
   var body: some View {
-    SettingsRow(title: "笔记文件", caption: "留空写到 Jotbox 的收件箱", alignment: .trailing) {
+    SettingsRow(title: "笔记文件", caption: "留空用默认位置", alignment: .trailing) {
       SettingsTextField(
         text: $model.settings.noteFile,
-        placeholder: NoteStore.defaultFileURL.path,
+        placeholder: (NoteStore.defaultFileURL.path as NSString).abbreviatingWithTildeInPath,
         accessibilityLabel: "笔记文件",
         accessibilityIdentifier: "settings-note-file-editor",
         isFocused: isFocused
@@ -1087,6 +1088,23 @@ private struct NoteFileRow: View {
         model.settings.noteFile = model.settings.noteFile.trimmingCharacters(
           in: .whitespacesAndNewlines)
       }
+    }
+  }
+}
+
+/// Whether completed translations and improvements are kept beside their source
+/// (`Design/spec/notes.md` §四). On by default; off leaves the file to ⌥N and ⌘S alone.
+private struct NoteResultsRow: View {
+  @Bindable var model: AppModel
+
+  var body: some View {
+    SettingsRow(title: "存结果", caption: "翻译与改写的结果也写进笔记", alignment: .trailing) {
+      Toggle("", isOn: $model.settings.noteResults)
+        .labelsHidden()
+        .toggleStyle(.switch)
+        .tint(CidaDesign.accent)
+        .controlSize(.small)
+        .accessibilityIdentifier("settings-note-results-toggle")
     }
   }
 }

@@ -150,4 +150,47 @@ final class NoteStoreTests: XCTestCase {
 
     XCTAssertTrue(store.isRecentDuplicate(NoteDraft(text: "刚刚存的那条")))
   }
+
+  // MARK: - The default file
+
+  /// The default inbox is Cida's own (`Design/spec/notes.md` §二): notes do not depend on
+  /// another tool being installed, and Jotbox's format is still what the file speaks.
+  func testTheDefaultFileIsCidasOwnInbox() {
+    XCTAssertEqual(
+      NoteStore.defaultFileURL.path,
+      (NSHomeDirectory() as NSString).appendingPathComponent(".cida/items.jsonl"))
+  }
+
+  // MARK: - Result notes
+
+  /// A result note keeps both halves (`Design/spec/notes.md` §四): the source in `text`, what
+  /// the model made of it in `note`.
+  func testAResultNoteCarriesItsOutput() throws {
+    let store = store()
+    try store.append(
+      NoteDraft(text: "原文", source: NoteResultKind.translation.rawValue, note: "Translation"))
+
+    let saved = try store.savedNotes()
+    XCTAssertEqual(saved[0].text, "原文")
+    XCTAssertEqual(saved[0].note, "Translation")
+    XCTAssertEqual(saved[0].source, "translation")
+  }
+
+  /// The same source turned into different words is a new note, not a repeat; the same pair
+  /// inside the window is the repeat the check exists for. A draft without a note still matches
+  /// any note of the same text, which is how ⌥N keeps behaving.
+  func testTheDuplicateCheckComparesTheOutputOfAResultNote() throws {
+    let store = store()
+    try store.append(NoteDraft(text: "原文", source: "translation", note: "First translation"))
+
+    XCTAssertTrue(
+      store.isRecentDuplicate(
+        NoteDraft(text: "原文", source: "translation", note: "First translation")))
+    XCTAssertFalse(
+      store.isRecentDuplicate(
+        NoteDraft(text: "原文", source: "translation", note: "Another translation")))
+    XCTAssertTrue(
+      store.isRecentDuplicate(NoteDraft(text: "原文", source: "selection")),
+      "⌥N 不因为那条笔记带着结果就重复写入")
+  }
 }
