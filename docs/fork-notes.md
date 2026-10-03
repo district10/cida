@@ -96,13 +96,17 @@ DMG 是 Apple Development 签名、没有公证，换机器第一次打开要**�
 
 ```bash
 cd ~/git/cida
-# 本仓库的 origin 是镜像地址（ghfast.top 前缀），国内 fetch 不用代理；upstream 指向真身
-git remote add upstream https://github.com/Xuanwo/cida.git   # 已经加过了
-# 国内取上游：直连会超时，走镜像
+# 两个 remote：origin = 我们自己的私有镜像 git@github.com:district10/cida.git（推送目标，SSH）；
+# upstream = 上游真身 https://github.com/Xuanwo/cida.git（只读）
+# 国内取上游：直接打 github.com 很慢（实测 ~70KB/s），走镜像（实测 ~2.5MB/s）
 git fetch https://ghfast.top/https://github.com/Xuanwo/cida.git main:refs/remotes/upstream/main
 git rebase upstream/main
 swift build -Xswiftc -warnings-as-errors && swift test
 ```
+
+本仓库原先是 `--depth 1 --single-branch` 的浅克隆（历史只到 `33c1518`，10 个 commit），推送到 GitHub 会因历史不完整而受限。
+2026-10-03 已按上面的镜像地址 `git fetch --unshallow` 补全：根提交 `b7162bb`、215 个 commit、tag `v1.0.0`–`v1.5.1`，
+`.git` 现在约 400MB（全量历史里的截图与 gif）。推送用 `git push -u origin main notes`，之后 `git fetch origin` 按通配 refspec 跟踪两个分支。
 
 冲突预期：我们的**新文件**（NoteStore / SelectionNote / 两个测试 / spec）不会冲突；
 **改动面**集中在 §二 列的那 7 个文件，且都是"各加一小段"的形式——上游若改动同一区域会有小冲突，按各自意图合并即可。
