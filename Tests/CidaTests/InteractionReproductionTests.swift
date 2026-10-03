@@ -422,6 +422,18 @@ final class InteractionReproductionTests: XCTestCase {
         }
       }
       XCTAssertEqual(drift, [], "\(move): the tabs stay under the title while the window moves")
+      assertTheTabFillsTheWindow(move)
+    }
+    /// A settled tab starts at the window's top edge and fills it. A host view left hanging off
+    /// an edge — the way AppKit's autoresizing can leave one — is what a half-drawn or blank tab
+    /// looks like, and no step of a move may end in that state.
+    func assertTheTabFillsTheWindow(_ move: String) {
+      XCTAssertEqual(
+        content.convert(content.bounds, to: nil).maxY, window.frame.height, accuracy: 0.5,
+        "\(move): 内容顶边贴着窗口顶边")
+      XCTAssertEqual(
+        content.frame.height, content.superview?.bounds.height ?? -1, accuracy: 1,
+        "\(move): 内容与窗口一样高，窗口里不留空白")
     }
 
     // The window follows over motion-height-ms; wait for each move to end.

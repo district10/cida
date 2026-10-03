@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import os
 
 /// The Settings tabs (`Design/spec/settings.md` §一), in the order a new user needs them:
 /// which model, what and how to translate, how to summon Cida and what it may read, and the
@@ -60,10 +61,17 @@ struct SettingsWindowView: View {
           SettingsBody(model: model, updates: updates)
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { bodyHeight = $0 }
         }
+        // Every tab gets its own scroll view: one scroll view shared by all four kept the tab
+        // it left — its frame and its scroll position — until the next measurement arrived, so
+        // a tab could be drawn through the previous tab's viewport (scrolled past its own end)
+        // while the window had already moved to the new height.
+        .id(model.settingsTab)
         .scrollBounceBehavior(.basedOnSize)
         .frame(
           height: bodyHeight.map {
-            min($0, maxContentHeight - SettingsWindowFactory.chromeHeight)
+            // Never a zero-height body: the measurement and the window's move are two different
+            // paths, and a body neither of them sized would leave the tab blank.
+            max(1, min($0, maxContentHeight - SettingsWindowFactory.chromeHeight))
           })
       }
     }
@@ -146,11 +154,18 @@ enum SettingsWindowFactory {
 /// the frame is still animating, so the tabs jumped past the top edge and slid back on every
 /// switch. Here only the window's frame moves. The host is never shorter than the window: it grows
 /// at once, and while the window shrinks it keeps its height until the window has caught up.
+/// Its frame is set by hand (`placeHost`), never by an autoresizing mask: AppKit keeps the bottom
+/// margin of a subview that only resizes in width, which is a second, silent hand on the tab's
+/// position — one that left the host off the window's edge on a Mac where the two interleaved
+/// differently.
 @MainActor
 final class SettingsContentController: NSViewController {
   private let hostingController: NSHostingController<SettingsWindowView>
   /// The height the content last asked for.
   private(set) var contentHeight: CGFloat
+  /// The height the host is kept at: it grows to a taller tab at once, and while the window
+  /// shrinks it keeps its height until the window has caught up.
+  private var hostHeight: CGFloat = 0
   /// Counts moves, so a superseded move's end cannot shrink the host under a newer one.
   private var heightMoveCount = 0
 
@@ -180,13 +195,40 @@ final class SettingsContentController: NSViewController {
   override func loadView() {
     let container = SettingsContainerView(
       frame: NSRect(x: 0, y: 0, width: SettingsWindowFactory.width, height: contentHeight))
+    // The host is placed by hand, at the container's top-left. An autoresizing mask would leave
+    // the position to AppKit, and for a subview that only resizes in width AppKit also keeps the
+    // bottom margin — on a Mac where the window's move and that resize interleave differently,
+    // the host ended up hanging off one edge of the window, and the whole tab was drawn shifted
+    // (or not at all) until the app was restarted.
+    container.autoresizesSubviews = false
     addChild(hostingController)
     let host = hostingController.view
-    host.autoresizingMask = [.width]
-    host.frame = container.bounds
+    hostHeight = contentHeight
+    placeHost(in: container)
     container.addSubview(host)
     view = container
   }
+
+  override func viewDidLayout() {
+    super.viewDidLayout()
+    placeHost(in: view)
+  }
+
+  /// The host sits at the container's top-left, at the height the content asked for.
+  private func placeHost(in container: NSView) {
+    let host = hostingController.view
+    let frame = NSRect(x: 0, y: 0, width: container.bounds.width, height: hostHeight)
+    guard host.frame != frame else { return }
+    // Nothing else may move the tab out of the window's top edge; if something did, it is put
+    // back here and said out loud, because the visible result is a half-drawn or blank tab.
+    if host.frame.minY != 0 || abs(host.frame.height - frame.height) > 0.5 {
+      Self.logger.notice(
+        "settings host repaired from y=\(host.frame.minY, privacy: .public) h=\(host.frame.height, privacy: .public) to h=\(frame.height, privacy: .public)")
+    }
+    host.frame = frame
+  }
+
+  private static let logger = Logger(subsystem: "com.xuanwo.Cida", category: "settings")
 
   private func contentDidAsk(forHeight height: CGFloat) {
     let height = ceil(height)
@@ -208,7 +250,7 @@ final class SettingsContentController: NSViewController {
     let target = NSRect(
       x: window.frame.minX, y: window.frame.maxY - frameHeight, width: window.frame.width,
       height: frameHeight)
-    if height > hostingController.view.frame.height { setHostHeight(height) }
+    if height > hostHeight { setHostHeight(height) }
     let duration =
       window.isVisible ? CidaMotion.resolvedDuration(CidaMotion.heightSeconds, in: window) : 0
     guard duration > 0 else {
@@ -245,9 +287,9 @@ final class SettingsContentController: NSViewController {
   }
 
   private func setHostHeight(_ height: CGFloat) {
-    let host = hostingController.view
-    guard abs(host.frame.height - height) > 0.5 else { return }
-    host.setFrameSize(NSSize(width: host.frame.width, height: height))
+    hostHeight = height
+    guard isViewLoaded else { return }
+    placeHost(in: view)
   }
 }
 
