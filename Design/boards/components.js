@@ -142,6 +142,10 @@ class CidaSettings extends HTMLElement {
       : row("改进并替换", "改进并替换选中文字", `<span class="chip">⌥ F</span>`, "end");
     // spec/notes.md §一, §二, §四: the fork's note file, and whether generated results go in it.
     const noteShortcut = row("存为笔记", "把选中文字存进笔记文件", `<span class="chip">⌥ N</span>`, "end");
+    // spec/chat.md §一, §六: the quick chat's window and the system prompt it asks under.
+    const chatShortcut = row("快速问答", "弹窗里问一句，答案记进笔记", `<span class="chip">⌥ C</span>`, "end");
+    const chatPrompt = row("系统提示词", "快速问答里模型的身份 · 留空用默认",
+      field("You are a helpful assistant. Answer the user's question directly and concisely. Reply in the language the user writes in.", "prompt"), "end");
     const noteFile = row("笔记文件", "留空用默认位置", field("~/.cida/items.jsonl"), "end");
     const noteResults = row("存结果", "翻译与改写的结果也写进笔记", `<span class="toggle on"></span>`, "end");
     // spec/settings.md §五: 已开启 once granted, otherwise 去授权.
@@ -205,9 +209,10 @@ class CidaSettings extends HTMLElement {
       model: `<div class="group">${modelGroup}</div>`,
       translation: `
         <div class="group"><h3>语言</h3>${languages}</div>
-        <div class="group">${actions}</div>`,
+        <div class="group">${actions}</div>
+        <div class="group"><h3>问答</h3>${chatPrompt}</div>`,
       shortcuts: `
-        <div class="group"><h3>快捷键</h3>${shortcut}${capture}${layerShortcut}${improvementShortcut}${noteShortcut}</div>
+        <div class="group"><h3>快捷键</h3>${shortcut}${capture}${layerShortcut}${improvementShortcut}${noteShortcut}${chatShortcut}</div>
         <div class="group"><h3>笔记</h3>${noteFile}${noteResults}</div>
         <div class="group"><h3>权限</h3>${permission("辅助功能", "读取与替换应用文字")}${permission("屏幕录制", "截图翻译")}</div>`,
       general: `

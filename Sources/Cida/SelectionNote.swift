@@ -123,6 +123,23 @@ final class SelectionNote {
     }
   }
 
+  /// Keeps a finished chat conversation (`Design/spec/chat.md` §四): the whole exchange up to
+  /// this round, written again as its own line, so the last line of a conversation holds all of
+  /// it. Quiet like a generated result — nobody pressed a note key for it — except when the
+  /// write fails, which the pill has to say.
+  func saveChat(text: String, application: NoteSourceApplication?, settings: CidaSettings) {
+    let draft = NoteDraft(text: text, source: "chat", application: application, note: nil)
+    switch append(draft, settings: settings) {
+    case .written:
+      recordEvent("note-saved-chat source=chat")
+    case .duplicate:
+      recordEvent("note-chat-duplicate source=chat")
+    case .failed(let reason):
+      onFeedback(NoteFeedback(text: "存入失败：\(reason)", dismissAfter: 2.5))
+      recordEvent("note-chat-failed source=chat")
+    }
+  }
+
   private enum AppendOutcome {
     case written
     case duplicate

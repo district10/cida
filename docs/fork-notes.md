@@ -19,6 +19,7 @@
 | 剪贴板存笔记 | **⌥N**（没选中时） | 剪贴板里有文本就存它，`source` 记 `"clipboard"`；一次按键覆盖"选中了/刚复制了"两种场合 |
 | 看完再存 | **⌥A** 开面板 → **⌘S**（或面板打开时按 ⌥N） | 存的是面板里那段文字（可编辑、可粘贴、可用 ⌥S 截图识别），`app` 记唤起面板时所在的应用 |
 | 翻译/改写自动入库 | 无需按键，默认开 | 每次生成成功后自动追一行：原文在 `text`，译文/改写结果在 `note`，`source` 记 `translation`/`improvement`；面板的翻译与改进、⌥F 的改进并替换都算，⌥D 原处翻译不算（一次一屏，太吵） |
+| 快速问答 | **⌥C** | 弹出一个小窗问一句、接着追问（模型是设置里那一个，system 提示词可在设置里改）；每答完一轮追一行，`source` 记 `chat`，`text` 是**到这一轮为止的全部问答**（Q1A1，追问一次就是 Q1A1Q2A2，各写一行、不重写上一行）；**重开就是新对话** |
 | 菜单栏 | 「存为笔记」 | 与其它动作并列，显示当前快捷键 |
 | 设置 | 快捷键 → 「存为笔记」行 + 「笔记」组（笔记文件路径、存结果开关） | |
 | 命令行 | `config set note-shortcut=…` / `note-file=…` / `note-results=…` | 与上游其它字段同一套 schema |
@@ -31,13 +32,20 @@
   `GlobalShortcut.swift`（`.saveNote` + `optionN`）、`Models.swift`（`noteShortcut`/`noteFile`/`noteResults` + Codable）、
   `ConfigurationFields.swift`（三个 CLI 字段）、`PanelWindow.swift`（`NoteShortcutRouting` + ⌘S 分支）、`SettingsView.swift`（两行 + 一组 + 开关）、
   `SelectionImprovement.swift`（`onGenerated` 回调）；设计面 `Design/spec/{notes,settings}.md` 与 `Design/boards/components.js`（设置板补上笔记组）。
+- 快速问答（2026-10-04）同样是新文件：`Sources/Cida/ChatModel.swift`（一轮对话的状态、流式回答、增量合成笔记文本）、
+  `Sources/Cida/ChatView.swift`（窗口内容：提问在 surface、回答在 paper、底部输入栏）、`Sources/Cida/ChatWindow.swift`（浮窗与窗口级按键）、
+  `Tests/CidaTests/ChatModelTests.swift`、`Design/spec/chat.md`、`Design/boards/chat.html`。
+  改动面：`GlobalShortcut.swift`（`.askChat` + `optionC`）、`Models.swift`（`chatShortcut`/`chatSystemPrompt`/`chatPrompt` + Codable 与迁移）、
+  `ConfigurationFields.swift`（`chat-shortcut`/`chat-prompt`）、`SettingsView.swift`（快捷键一行 + 动作页「问答」组）、`AppLifecycle.swift`（热键/菜单/截图状态/笔记回调）、
+  `ModelPrompt.swift`（`ModelPromptMessage` + `messages`）、`ModelService.swift`（多轮 `messages` 进请求体 + 按 prompt 发送）、
+  `SelectionNote.swift`（`saveChat`）；设计面 `Design/spec/settings.md`、`Design/spec/notes.md` §六、`Design/boards/components.{css,js}`。
 
 ## 三、数据：一份自己的收件箱
 
 默认写 `~/.cida/items.jsonl`（可用 `note-file` 或设置改）。
 一行一条 JSON，键按字母序，中文与斜杠不转义；字段固定：`schema`(1) / `id` / `ts`(ISO 8601 带毫秒与时区) / `source` / `text` / `note` / `app{name,bundle_id}` / `copied`。
-`source` 是 `selection`、`clipboard`、`translation` 或 `improvement`；`note` 平时是 `null`，
-自动入库的那两种把译文/改写结果放在这里，`text` 始终是原文。
+`source` 是 `selection`、`clipboard`、`translation`、`improvement` 或 `chat`；`note` 平时是 `null`，
+自动入库的那两种把译文/改写结果放在这里，`text` 始终是原文（`chat` 是例外：`text` 是整段问答，见 §二）。
 写入用 `O_APPEND` + 单次 `write`，所以辞达与任何别的写入者（脚本、其它工具）可以同时追加而不会互相覆盖。
 60 秒内、同一个 App、`text` 与 `note` 都相同才算重复，只提示不重复写入（所以同一段原文重新生成出不同结果会各留一行）。
 
@@ -116,6 +124,7 @@ swift build -Xswiftc -warnings-as-errors && swift test
 | 划词存笔记 | ✅ ⌥N | 比右键服务省事，不必先去设置里勾选 |
 | 剪贴板一键存 | ✅ ⌥N 回退 | 没选中文字时存剪贴板，不必先切到菜单栏 |
 | 翻译/改写的结果也留下 | ✅ 默认开 | 每次生成成功自动追一行（原文 `text` + 结果 `note`）；设置里的「存结果」或 `note-results=false` 可关 |
+| 快速问答 | ✅ ⌥C | 浮窗问一句、接着追问，模型与端点用现有配置，system 提示词在设置（动作页「问答」组）或 `chat-prompt` 里改；每答完一轮把整段问答（Q1A1 → Q1A1Q2A2…）各追一行，`source=chat`；重开即新对话，不做历史 |
 | 存之前补一句备注（人写的，进 `note` 字段） | ❌ 未做 | `note` 现在装自动入库的结果；人写的备注框还没做，要结构化备注得在面板加输入框（配 `Design/spec/panel.md` 更新） |
 | `copied{ts,app}`（这份剪贴板何时从哪复制） | ❌ 未做 | 需要常驻轮询 `NSPasteboard.changeCount`（约 40 行）；辞达不做，`copied` 恒为 `null` |
 | 从命令行/stdin 灌入一条笔记 | ❌ 未做 | 要的话给辞达 CLI 加一个 `note add` 子命令，走同一个 `NoteStore` |
@@ -148,6 +157,24 @@ swift build -Xswiftc -warnings-as-errors && swift test
   但这台机器上**合成键盘事件进不了任何 App**（鼠标事件与 Carbon 全局热键可以），所以按键本身只能人工确认。
 - ⚠️ 划词读取本身要有辅助功能权限才能端到端跑通（TCC 无法程序化授予）。
 - ⚠️ 换机器安装：DMG 未公证，第一次打开要右键 →「打开」；权限要重新授予（见 §四）。
+
+快速问答（2026-10-04，同一台机器）：
+
+- ✅ `swift build -Xswiftc -warnings-as-errors` 干净；`ChatModelTests`（12 条）覆盖「每答完一轮把整段问答各追一行」
+  （`Q1A1` 与 `Q1A1Q2A2` 两条，停止/失败不写、重开清空且取消在跑的请求、追问把前几轮一起发给模型）与三种格式的请求体（`messages`/`input`/`system`）全绿；
+  CLI 的 `chat-shortcut`/`chat-prompt`（含与其它快捷键不能相同）与「老配置拿到默认值、不抢别人的 ⌥C」也有单测。
+  全量 `swift test` 359 条只剩上面那 3 条既有的 dvorak 断言失败（2 个用例），与本次无关。
+- ✅ 界面：5 个状态（新对话 / 回答中 / 追问 / 失败 / 未配置）加深色都截了图，`Design/QACurrent/comparison-chat-*.png` 是板与原生截图的对照，
+  `Design/ImplementationCurrent/chat-*.png` 是原生那张；设置页 `comparison-settings-{shortcuts,translation}.png` 重截（快捷键多一行「快速问答」，动作页多「问答」组）。
+  截图全部走离线自动化（`scripts/run-isolated-automation.sh … --design-state chat-*`），没有动过本机屏幕。
+  `InteractionReproductionTests` 里快捷键页的高度断言按新板改成 784pt（板 784、原生 782）。
+- ⚠️ 真实模型的端到端没跑（本机没有 Key，只跑了桩服务）：一条真实问答落盘要自己试一次 —— 查
+  `tail -f ~/.cida/items.jsonl`（应出现 `"source":"chat"` 的行）或 `log stream --predicate 'category == "shortcut"' | grep note-saved-chat`。
+- ⚠️ ⌥C、⏎ 发送、⌘. 停止、Esc 关闭同样只能人工确认：本机合成键盘事件进不了任何 App（鼠标事件与 Carbon 全局热键可以）。
+- ⚠️ Tart 的 XCUI 旅程这次没跑（本机没装 tart，`tart list` 不可用）：改动碰到设置与快捷键两页，按 AGENTS.md 该跑
+  `CIDA_TART_DIAGNOSTIC_MODE=1 CIDA_UI_TEST_ONLY_TESTING=PanelAndSettingsJourneyTests/… scripts/test-ui-in-tart.sh` 那一片分片；
+  在有 Tart 的机器或 release gate 上补一次。
+- ⚠️ 窗口不因失焦而关闭（`Design/spec/chat.md` §一），所以「重开清空」只在真的重新打开时发生；如果更想要「点别处就收起」，改 `ChatController` 里一处即可。
 
 ## 八、后续可以做的
 

@@ -16,6 +16,20 @@ struct ModelTaskParameters: Codable, Equatable, Sendable {
   let foreignLanguage: String?
   let targetLanguage: String?
 
+  init(
+    operation: ProcessingMode,
+    languageBehavior: ModelLanguageBehavior,
+    myLanguage: String? = nil,
+    foreignLanguage: String? = nil,
+    targetLanguage: String? = nil
+  ) {
+    self.operation = operation
+    self.languageBehavior = languageBehavior
+    self.myLanguage = myLanguage
+    self.foreignLanguage = foreignLanguage
+    self.targetLanguage = targetLanguage
+  }
+
   init(request: ProcessingRequest) {
     operation = request.mode
     switch request.mode {
@@ -48,10 +62,39 @@ struct ModelTaskParameters: Codable, Equatable, Sendable {
   }
 }
 
+/// One turn of a conversation (`Design/spec/chat.md` §三): what the user asked and what the
+/// model answered, in the order they happened.
+struct ModelPromptMessage: Equatable, Sendable {
+  enum Role: String, Sendable {
+    case user
+    case assistant
+  }
+
+  let role: Role
+  let text: String
+}
+
 struct ModelPrompt: Equatable, Sendable {
   let systemMessage: String
   let userMessage: String
   let parameters: ModelTaskParameters
+  /// The turns of a conversation, in order. Nil is the ordinary one-message request; when it is
+  /// set, all three formats send these messages instead of `userMessage` (the chat window's
+  /// follow-up turns need the earlier ones to be there).
+  var messages: [ModelPromptMessage]? = nil
+
+  /// The prompt the quick chat asks under: the configured system prompt, and the whole
+  /// conversation so far (`Design/spec/chat.md` §三).
+  static func conversation(
+    systemMessage: String, messages: [ModelPromptMessage]
+  ) -> ModelPrompt {
+    ModelPrompt(
+      systemMessage: systemMessage,
+      userMessage: "",
+      parameters: ModelTaskParameters(operation: .chat, languageBehavior: .followPolicy),
+      messages: messages
+    )
+  }
 }
 
 enum ModelPromptBuilder {

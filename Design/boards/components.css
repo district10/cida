@@ -341,6 +341,81 @@ body {
 }
 .note .icon { width: 13px; height: 13px; color: var(--text-tertiary); }
 
+/* ---- Chat window (spec/chat.md) ---------------------------------------- */
+
+.chat {
+  display: flex;
+  flex-direction: column;
+  width: var(--chat-width);
+  height: var(--chat-max-height);
+  overflow: hidden;
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--panel-edge), var(--panel-shadow);
+}
+
+.chat .transcript {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-height: 0;
+  overflow: hidden;
+}
+/* The first round starts at the window's top edge; every later one opens on a hairline. */
+.chat .turn { border-top: 1px solid var(--border); }
+.chat .turn:first-child { border-top: 0; }
+.chat .question {
+  padding: var(--space-pane-y) var(--space-window-x);
+  background: var(--surface);
+  font-family: var(--font-body);
+  font-size: var(--font-size-body);
+  line-height: 26px;
+  color: var(--text-primary);
+}
+.chat .answer {
+  padding: var(--space-result-y) var(--space-window-x);
+  background: var(--surface-paper);
+  font-family: var(--font-result);
+  font-size: var(--font-size-result);
+  line-height: 29px;
+  color: var(--text-ink);
+}
+.chat .answer.cjk {
+  font-feature-settings: "chws";
+  font-family: var(--font-result-cjk);
+  font-size: var(--font-size-result-cjk);
+  line-height: 31px;
+}
+.chat .answer .cursor {
+  display: inline-block;
+  width: calc(var(--motion-cursor-w) * 1px);
+  height: calc(var(--motion-cursor-h) * 1px);
+  margin-left: 2px;
+  vertical-align: -4px;
+  background: var(--accent);
+}
+/* 还没有配置模型服务: the same line the panel's notes use, at the top of the transcript. */
+.chat .transcript > .note { padding: var(--space-pane-y) var(--space-window-x); }
+
+.chat .input {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  padding: var(--space-pane-y) var(--space-window-x);
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+.chat .input .typed {
+  font-family: var(--font-body);
+  font-size: var(--font-size-body);
+  line-height: 26px;
+  color: var(--text-primary);
+}
+.chat .input .typed.placeholder { color: var(--text-tertiary); }
+.chat .input .bar-action { flex: none; }
+
 /* ---- Lifecycle panels (spec/lifecycle.md) ------------------------------ */
 
 .source.statement .muted { color: var(--text-tertiary); }
@@ -584,6 +659,10 @@ body {
 .field.placeholder { color: var(--text-tertiary); }
 .field.focused { border: 1.5px solid var(--accent); }
 .field.text { font-family: var(--font-ui); font-size: 12.5px; }
+/* The chat's system prompt is longer than the control column: the field clips it, as the
+   native field does, and the whole prompt is read or written from the command line
+   (spec/chat.md §六). */
+.field.prompt { display: block; overflow: hidden; line-height: 28px; white-space: nowrap; }
 .field.short { flex: 0 0 180px; }
 .row .controls .swap { flex: none; font-size: 13px; color: var(--text-tertiary); }
 .field .caret { display: inline-block; width: 1px; height: 14px; margin-left: 1px; background: var(--text-primary); vertical-align: -2px; }

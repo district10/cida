@@ -97,6 +97,12 @@
   --share-card-width: 480px;
   --share-card-margin: 10px;
 
+  /* Chat window (see spec/chat.md) */
+  --chat-width: 640px;
+  --chat-max-height: 560px;
+  --chat-max-ratio: 0.6;
+  --chat-input-max-height: 160px;
+
   /* Motion (see spec/streaming-motion.md) */
   --motion-char-in-ms: 120;
   --motion-icon-in-ms: 120;

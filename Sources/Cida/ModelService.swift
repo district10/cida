@@ -30,10 +30,26 @@ struct ModelServiceClient: TextProcessingService {
     _ request: ProcessingRequest,
     settings: CidaSettings
   ) -> AsyncThrowingStream<String, Error> {
+    stream(settings: settings) { try Self.prepare(request, settings: settings) }
+  }
+
+  /// The same stream for a prompt built elsewhere: the quick chat's conversation
+  /// (`Design/spec/chat.md` §三) is not a processing request.
+  func stream(
+    prompt: ModelPrompt,
+    settings: CidaSettings
+  ) -> AsyncThrowingStream<String, Error> {
+    stream(settings: settings) { try Self.prepare(prompt: prompt, settings: settings) }
+  }
+
+  private func stream(
+    settings: CidaSettings,
+    prepare: @escaping @Sendable () throws -> PreparedModelRequest
+  ) -> AsyncThrowingStream<String, Error> {
     AsyncThrowingStream { continuation in
       let task = Task.detached(priority: .utility) {
         do {
-          let prepared = try Self.prepare(request, settings: settings)
+          let prepared = try prepare()
           try await send(
             prepared,
             format: settings.modelService.format,
@@ -55,11 +71,24 @@ struct ModelServiceClient: TextProcessingService {
     settings: CidaSettings,
     timeout: TimeInterval = 300
   ) throws -> PreparedModelRequest {
+    try prepare(
+      prompt: ModelPromptBuilder.build(request: request, settings: settings),
+      settings: settings,
+      timeout: timeout
+    )
+  }
+
+  /// The request `settings` would send for a prompt built elsewhere — the quick chat's
+  /// conversation (`Design/spec/chat.md` §三); throws when the configuration is not complete.
+  static func prepare(
+    prompt: ModelPrompt,
+    settings: CidaSettings,
+    timeout: TimeInterval = 300
+  ) throws -> PreparedModelRequest {
     let missing = settings.modelService.missingFields(hasAPIKey: !settings.apiKey.isEmpty)
     guard missing.isEmpty else {
       throw ModelServiceError.incompleteConfiguration(missing: missing)
     }
-    let prompt = try ModelPromptBuilder.build(request: request, settings: settings)
     return try ModelRequestBuilder.build(
       prompt: prompt,
       configuration: settings.modelService,
@@ -257,12 +286,18 @@ enum ModelRequestBuilder {
     return PreparedModelRequest(urlRequest: request, body: body, displayHeaders: displayHeaders)
   }
 
-  /// The body each format expects, in the order its documentation writes it.
+  /// The body each format expects, in the order its documentation writes it. A conversation's
+  /// turns replace the single user message; the system message stays where the format keeps it
+  /// (`Design/spec/chat.md` §三).
   static func baseBody(prompt: ModelPrompt, configuration: ModelConfiguration) -> JSONObject {
     let model = JSONValue.string(configuration.model)
     let userMessage: JSONValue = .object([
       "role": .string("user"), "content": .string(prompt.userMessage),
     ])
+    let turns =
+      prompt.messages?.map { message in
+        JSONValue.object(["role": .string(message.role.rawValue), "content": .string(message.text)])
+      } ?? [userMessage]
     switch configuration.format {
     case .chatCompletions:
       return [
@@ -270,8 +305,7 @@ enum ModelRequestBuilder {
         "stream": .bool(true),
         "messages": .array([
           .object(["role": .string("system"), "content": .string(prompt.systemMessage)]),
-          userMessage,
-        ]),
+        ] + turns),
       ]
     case .responses:
       // Cida keeps no record of requests, so the service is asked not to either.
@@ -280,7 +314,7 @@ enum ModelRequestBuilder {
         "stream": .bool(true),
         "store": .bool(false),
         "instructions": .string(prompt.systemMessage),
-        "input": .array([userMessage]),
+        "input": .array(turns),
       ]
     case .anthropicMessages:
       return [
@@ -288,7 +322,7 @@ enum ModelRequestBuilder {
         "max_tokens": .integer(anthropicMaxTokens),
         "stream": .bool(true),
         "system": .string(prompt.systemMessage),
-        "messages": .array([userMessage]),
+        "messages": .array(turns),
       ]
     }
   }

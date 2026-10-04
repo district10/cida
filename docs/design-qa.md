@@ -15,6 +15,7 @@ one HTML board per topic under `Design/boards`, drawn from the shared `tokens.cs
 | Model service configuration: the command line, Settings' 模型 group, the prompt | `spec/configuration.md` | `boards/configuration.html` |
 | Brand: mark, app icon, menu bar image and menu, wordmark | `spec/brand.md` | `boards/brand.html` |
 | Updates: checks, channels, update reminders, the development build | `spec/updates.md` | `boards/lifecycle.html`, `boards/settings-states.html` |
+| Quick chat (fork): the Option-C window, its transcript, the system prompt, each round in the notes | `spec/chat.md` | `boards/chat.html` |
 
 Each state carries a `data-state` name; the ones the app can render with `--design-state` are
 compared natively:
@@ -36,6 +37,8 @@ compared natively:
 | ⑯ 译成我的语言 | `translate-into-mine` | `translate-into-mine` |
 | ⑰ 换一门外语 · ⌘L | `target-editing` | `target-editing` |
 | ⑱ 已换成日本語 | `target-changed` | (after ⏎ in the field; `ForeignLanguageTests`) |
+| 快速问答 · 新对话 / 回答中 / 追问 / 失败 / 还没配置模型 | `chat` / `chat-streaming` / `chat-follow-up` / `chat-failed` / `chat-unconfigured` | same |
+| 快速问答 · 深色外观 | `dark-chat-follow-up` | `dark-chat-follow-up` |
 | 设置 · 模型（默认） | `settings` | `settings` |
 | 设置 · 翻译 | `settings-translation` | `settings-translation` |
 | 设置 · 翻译 · 我的语言输入中 | `settings-language-editing` | `settings-language-editing` |
@@ -128,6 +131,10 @@ inside a disposable headless Tart macOS session. Neither path activates the test
   budget with result scrolling, submit keeping the source and replacing the result, the stale rule,
   the slot phases, composer growth and shrink measured from TextKit, the input-method composition
   guard, result typography per language, and ⌘C precedence.
+- `ChatModelTests` pins the quick chat: one note per finished round carrying the whole conversation
+  so far (`Q1A1`, then `Q1A1Q2A2`), a stopped or failed round writing nothing and handing its
+  question back to the input, reopening (reset) cancelling the running answer, and the conversation
+  reaching the model as messages in all three request formats.
 - The Tart XCUI suite drives the signed Release panel through the journeys listed in
   `UITests/README.md`; its latest run is recorded in `functional-qa.md`.
 - Failures retain approved/current/design/diff images in the `.xcresult`; baseline recording is

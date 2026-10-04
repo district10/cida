@@ -16,11 +16,15 @@ struct ProcessingMode: RawRepresentable, Hashable, Codable, Sendable {
   let rawValue: String
   static let translate = Self(rawValue: "translate")
   static let improve = Self(rawValue: "improve")
+  /// The quick chat's conversation (`Design/spec/chat.md`). It is not a panel action, so it
+  /// never appears in `settings.actions`; it names the task a request belongs to.
+  static let chat = Self(rawValue: "chat")
 
   var title: String {
     switch self {
     case .translate: "翻译"
     case .improve: "改进"
+    case .chat: "问答"
     default: rawValue
     }
   }
@@ -226,6 +230,10 @@ struct CidaSettings: Equatable, Sendable {
     "Translate the user-provided text into the target language specified by the application. Preserve meaning, tone, and terminology. Return only the translated text."
   static let defaultImprovementPrompt =
     "You are a writing assistant. Improve the user-provided text for clarity, grammar, and natural tone. Keep the original language and meaning. Prefer precise technical wording. Return only the improved text."
+  /// The quick chat's system message before the user writes one (`Design/spec/chat.md` §六): an
+  /// ordinary assistant, nothing about translation or Cida's own contract.
+  static let defaultChatPrompt =
+    "You are a helpful assistant. Answer the user's question directly and concisely. Reply in the language the user writes in."
 
   private static let currentPromptContractVersion = 2
 
@@ -268,6 +276,10 @@ struct CidaSettings: Equatable, Sendable {
   /// The combination that saves the selection as a note without showing the panel
   /// (`Design/spec/notes.md`).
   var noteShortcut: GlobalShortcut? = .optionN
+  /// The combination that opens the quick chat window (`Design/spec/chat.md`).
+  var chatShortcut: GlobalShortcut? = .optionC
+  /// The chat's system message; empty means the default (`Design/spec/chat.md` §六).
+  var chatSystemPrompt = Self.defaultChatPrompt
   /// Where notes are written. Empty means Cida's own inbox (`NoteStore.defaultFileURL`); a path
   /// (`~` allowed) puts them somewhere else.
   var noteFile = ""
@@ -287,6 +299,13 @@ struct CidaSettings: Equatable, Sendable {
 
   init() {}
 
+  /// The system message the quick chat asks under; an emptied field means the default
+  /// (`Design/spec/chat.md` §六).
+  var chatPrompt: String {
+    let configured = chatSystemPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+    return configured.isEmpty ? Self.defaultChatPrompt : configured
+  }
+
   func shortcut(for action: GlobalShortcutAction) -> GlobalShortcut? {
     switch action {
     case .showPanel: shortcut
@@ -294,6 +313,7 @@ struct CidaSettings: Equatable, Sendable {
     case .translationLayer: layerShortcut
     case .improveSelection: improvementShortcut
     case .saveNote: noteShortcut
+    case .askChat: chatShortcut
     }
   }
 
@@ -301,7 +321,7 @@ struct CidaSettings: Equatable, Sendable {
   var heldShortcuts: [GlobalShortcut] {
     [
       shortcut, captureShortcut, layerShortcut, layerShortcut?.addingShift, improvementShortcut,
-      noteShortcut,
+      noteShortcut, chatShortcut,
     ].compactMap(\.self)
   }
 
@@ -318,6 +338,7 @@ struct CidaSettings: Equatable, Sendable {
     case .translationLayer: layerShortcut = newShortcut
     case .improveSelection: improvementShortcut = newShortcut
     case .saveNote: noteShortcut = newShortcut
+    case .askChat: chatShortcut = newShortcut
     }
   }
 
@@ -388,6 +409,8 @@ extension CidaSettings: Codable {
     case layerShortcut
     case improvementShortcut
     case noteShortcut
+    case chatShortcut
+    case chatSystemPrompt
     case noteFile
     case noteResults
     case promptContractVersion
@@ -450,12 +473,23 @@ extension CidaSettings: Codable {
     layerShortcut = try decodeShortcut(.layerShortcut, default: .optionD)
     improvementShortcut = try decodeShortcut(.improvementShortcut, default: .optionF)
     noteShortcut = try decodeShortcut(.noteShortcut, default: .optionN)
+    chatShortcut = try decodeShortcut(.chatShortcut, default: .optionC)
+    chatSystemPrompt =
+      try container.decodeIfPresent(String.self, forKey: .chatSystemPrompt) ?? Self.defaultChatPrompt
     noteFile = try container.decodeIfPresent(String.self, forKey: .noteFile) ?? ""
     noteResults = try container.decodeIfPresent(Bool.self, forKey: .noteResults) ?? true
     if !container.contains(.improvementShortcut),
       [shortcut, captureShortcut, layerShortcut, layerShortcut?.addingShift].contains(.optionF)
     {
       improvementShortcut = nil
+    }
+    // Someone who already gave ⌥C to another action keeps that one; the chat then has no
+    // shortcut until it is recorded (the same migration improvementShortcut got).
+    if !container.contains(.chatShortcut),
+      [shortcut, captureShortcut, layerShortcut, layerShortcut?.addingShift, improvementShortcut]
+        .contains(.optionC)
+    {
+      chatShortcut = nil
     }
   }
 
@@ -468,10 +502,11 @@ extension CidaSettings: Codable {
     try container.encode(launchAtLogin, forKey: .launchAtLogin)
     try container.encode(noteFile, forKey: .noteFile)
     try container.encode(noteResults, forKey: .noteResults)
+    try container.encode(chatSystemPrompt, forKey: .chatSystemPrompt)
     for (value, key) in [
       (shortcut, CodingKeys.shortcut), (captureShortcut, .captureShortcut),
       (layerShortcut, .layerShortcut), (improvementShortcut, .improvementShortcut),
-      (noteShortcut, .noteShortcut),
+      (noteShortcut, .noteShortcut), (chatShortcut, .chatShortcut),
     ] {
       if let value {
         try container.encode(value, forKey: key)

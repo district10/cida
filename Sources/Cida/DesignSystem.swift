@@ -142,6 +142,15 @@ enum CidaDesign {
     }
   }
 
+  /// `Design/spec/chat.md` §一: the quick chat window's fixed width, the cap on its height
+  /// (a share of the screen's free height) and the cap on the input's own height.
+  enum Chat {
+    static let width: CGFloat = 640
+    static let maxHeight: CGFloat = 560
+    static let maxRatio: CGFloat = 0.6
+    static let inputMaxHeight: CGFloat = 160
+  }
+
   /// `Design/spec/panel.md` §八: the card ⇧⌘C copies, narrower than the panel
   /// so it reads on a phone, inside a transparent margin that holds its shadow.
   enum ShareCard {

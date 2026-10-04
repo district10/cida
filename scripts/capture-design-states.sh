@@ -24,6 +24,7 @@ swift build --package-path "$project_dir"
 # Panel states: the capture is the panel at its content height, 800 pt wide.
 # The share-* states capture the card ⇧⌘C copies instead of a window.
 for state in empty translate improve stale stopped failed long translate-into-mine target-editing copy-menu \
+  chat chat-streaming chat-follow-up chat-failed chat-unconfigured \
   share-translate share-read share-improve \
   settings settings-translation settings-language-editing settings-prompt-editing \
   settings-shortcuts settings-shortcuts-custom settings-shortcuts-unset settings-recording settings-general settings-update-available \
@@ -33,7 +34,8 @@ for state in empty translate improve stale stopped failed long translate-into-mi
   lifecycle-update-downloading lifecycle-update-ready lifecycle-update-current \
   lifecycle-update-failed lifecycle-update-read-only \
   dark-empty dark-improve dark-stale dark-lifecycle-welcome \
-  dark-settings-prompt-editing dark-settings-recording dark-settings-general; do
+  dark-settings-prompt-editing dark-settings-recording dark-settings-general \
+  dark-chat-follow-up; do
   "$automation_runner" "$binary" \
     --design-state "$state" \
     --snapshot-output "$implementation_dir/$state.png"

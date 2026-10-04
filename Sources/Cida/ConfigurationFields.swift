@@ -30,6 +30,8 @@ enum ConfigurationField: String, CaseIterable, Sendable {
   case noteShortcut = "note-shortcut"
   case noteFile = "note-file"
   case noteResults = "note-results"
+  case chatShortcut = "chat-shortcut"
+  case chatPrompt = "chat-prompt"
   case launchAtLogin = "launch-at-login"
 
   /// The fields that describe the model service; `show` always lists these.
@@ -151,6 +153,16 @@ enum ConfigurationField: String, CaseIterable, Sendable {
         type: "boolean", values: ["true", "false"], defaultValue: "true", example: "false",
         description:
           "翻译与改进的结果也写进笔记文件：每次生成成功后追一行，原文在 text、译文/改写结果在 note，与设置里的「存结果」相同")
+    case .chatShortcut:
+      Schema(
+        type: "shortcut", values: nil, defaultValue: GlobalShortcut.optionC.configurationText,
+        example: "control+option+c",
+        description: "快速问答的快捷键：弹出问一句的窗口（`spec/chat.md`），答完一轮写进笔记。写法同 shortcut（none 表示不设置），所有快捷键不能相同")
+    case .chatPrompt:
+      Schema(
+        type: "text", values: nil, defaultValue: CidaSettings.defaultChatPrompt,
+        example: "Cida config set chat-prompt --file prompt.txt",
+        description: "快速问答的系统提示词，与设置里的相同：它是模型的身份，不套翻译/改进那层规则；长文本可用 --file 或 --stdin")
     case .launchAtLogin:
       Schema(
         type: "boolean", values: ["true", "false"], defaultValue: "false", example: "true",
@@ -208,14 +220,14 @@ enum ConfigurationField: String, CaseIterable, Sendable {
       } else {
         settings.foreignLanguage = value
       }
-    case .translationPrompt, .improvementPrompt:
+    case .translationPrompt, .improvementPrompt, .chatPrompt:
       guard !value.isEmpty else {
         throw invalid("不能为空；要恢复默认用 config unset \(rawValue)")
       }
-      if self == .translationPrompt {
-        settings.translationPrompt = value
-      } else {
-        settings.improvementPrompt = value
+      switch self {
+      case .translationPrompt: settings.translationPrompt = value
+      case .improvementPrompt: settings.improvementPrompt = value
+      default: settings.chatSystemPrompt = value
       }
     case .noteFile:
       guard !value.contains("\n"), !value.contains("\r") else {
@@ -227,7 +239,8 @@ enum ConfigurationField: String, CaseIterable, Sendable {
         throw invalid("只能是 true 或 false")
       }
       settings.noteResults = enabled
-    case .shortcut, .captureShortcut, .layerShortcut, .improvementShortcut, .noteShortcut:
+    case .shortcut, .captureShortcut, .layerShortcut, .improvementShortcut, .noteShortcut,
+      .chatShortcut:
       if value.lowercased() == GlobalShortcut.noneConfigurationText {
         settings.setShortcut(nil, for: shortcutAction!)
       } else if let shortcut = GlobalShortcut(configurationText: value) {
@@ -261,6 +274,7 @@ enum ConfigurationField: String, CaseIterable, Sendable {
     case .foreignLanguage: configuration.settings.foreignLanguage = defaults.foreignLanguage
     case .translationPrompt: configuration.settings.translationPrompt = defaults.translationPrompt
     case .improvementPrompt: configuration.settings.improvementPrompt = defaults.improvementPrompt
+    case .chatPrompt: configuration.settings.chatSystemPrompt = defaults.chatSystemPrompt
     case .shortcut: configuration.settings.shortcut = defaults.shortcut
     case .captureShortcut: configuration.settings.captureShortcut = defaults.captureShortcut
     case .layerShortcut: configuration.settings.layerShortcut = defaults.layerShortcut
@@ -268,6 +282,7 @@ enum ConfigurationField: String, CaseIterable, Sendable {
     case .noteShortcut: configuration.settings.noteShortcut = defaults.noteShortcut
     case .noteFile: configuration.settings.noteFile = defaults.noteFile
     case .noteResults: configuration.settings.noteResults = defaults.noteResults
+    case .chatShortcut: configuration.settings.chatShortcut = defaults.chatShortcut
     case .launchAtLogin:
       configuration.launchAtLogin = false
       configuration.settings.launchAtLogin = false
@@ -282,6 +297,7 @@ enum ConfigurationField: String, CaseIterable, Sendable {
     }
     for field in [
       ConfigurationField.shortcut, .captureShortcut, .improvementShortcut, .noteShortcut,
+      .chatShortcut,
     ]
     where settings.layerShortcut != nil
       && settings.shortcut(for: field.shortcutAction!) == settings.layerShortcut?.addingShift
@@ -291,6 +307,7 @@ enum ConfigurationField: String, CaseIterable, Sendable {
     }
     let fields: [ConfigurationField] = [
       .shortcut, .captureShortcut, .layerShortcut, .improvementShortcut, .noteShortcut,
+      .chatShortcut,
     ]
     for (index, field) in fields.enumerated() {
       // Two actions without a shortcut do not share one.
@@ -312,6 +329,7 @@ enum ConfigurationField: String, CaseIterable, Sendable {
     case .layerShortcut: .translationLayer
     case .improvementShortcut: .improveSelection
     case .noteShortcut: .saveNote
+    case .chatShortcut: .askChat
     default: nil
     }
   }
@@ -378,10 +396,12 @@ enum ConfigurationField: String, CaseIterable, Sendable {
     case .foreignLanguage: return .string(settings.foreignLanguage)
     case .translationPrompt: return .string(settings.translationPrompt)
     case .improvementPrompt: return .string(settings.improvementPrompt)
+    case .chatPrompt: return .string(settings.chatSystemPrompt)
     case .noteFile:
       return .string(settings.noteFile.isEmpty ? NoteStore.defaultFileURL.path : settings.noteFile)
     case .noteResults: return .bool(settings.noteResults)
-    case .shortcut, .captureShortcut, .layerShortcut, .improvementShortcut, .noteShortcut:
+    case .shortcut, .captureShortcut, .layerShortcut, .improvementShortcut, .noteShortcut,
+      .chatShortcut:
       return .string(
         settings.shortcut(for: shortcutAction!)?.configurationText
           ?? GlobalShortcut.noneConfigurationText)
@@ -405,13 +425,17 @@ enum ConfigurationField: String, CaseIterable, Sendable {
         ? "\(service.resolvedAuth.rawValue) （随 format）" : service.resolvedAuth.rawValue
     case .headers, .body:
       return jsonValue(in: configuration, hasAPIKey: hasAPIKey).displayText
-    case .translationPrompt, .improvementPrompt:
-      let prompt = self == .translationPrompt
-        ? configuration.settings.translationPrompt : configuration.settings.improvementPrompt
+    case .translationPrompt, .improvementPrompt, .chatPrompt:
+      let prompt =
+        switch self {
+        case .translationPrompt: configuration.settings.translationPrompt
+        case .improvementPrompt: configuration.settings.improvementPrompt
+        default: configuration.settings.chatSystemPrompt
+        }
       let line = prompt.replacingOccurrences(of: "\n", with: " ")
       return line.count > 60 ? String(line.prefix(60)) + "…" : line
     case .format, .myLanguage, .foreignLanguage, .shortcut, .captureShortcut, .layerShortcut,
-      .improvementShortcut, .noteShortcut, .noteFile, .noteResults, .launchAtLogin:
+      .improvementShortcut, .noteShortcut, .chatShortcut, .noteFile, .noteResults, .launchAtLogin:
       let value = jsonValue(in: configuration, hasAPIKey: hasAPIKey)
       return value.stringValue ?? value.compactText
     }

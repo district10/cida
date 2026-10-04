@@ -66,6 +66,7 @@ final class CidaAppDelegate: NSObject, NSApplicationDelegate {
         self?.layerWindowHotKey?.setSuspended(isSuspended)
         self?.improvementHotKey?.setSuspended(isSuspended)
         self?.noteHotKey?.setSuspended(isSuspended)
+        self?.chatHotKey?.setSuspended(isSuspended)
       },
       saveNote: { [weak self] text in
         self?.savePanelNote(text)
@@ -92,6 +93,7 @@ final class CidaAppDelegate: NSObject, NSApplicationDelegate {
   private let screenCaptureSource = SystemScreenCaptureSource()
 
   private var panelController: PanelController?
+  private var chatController: ChatController?
   private var settingsWindowController: NSWindowController?
   private var statusItem: NSStatusItem?
   private var statusItemMark: StatusItemMark?
@@ -137,6 +139,9 @@ final class CidaAppDelegate: NSObject, NSApplicationDelegate {
   /// The note shortcut (`Design/spec/notes.md`): saves the selection without the panel.
   private var noteHotKey: GlobalHotKey?
   private var noteMenuItem: NSMenuItem?
+  /// The chat shortcut (`Design/spec/chat.md`): opens the quick chat window.
+  private var chatHotKey: GlobalHotKey?
+  private var chatMenuItem: NSMenuItem?
   /// The screen the note shortcut was pressed on; the pill appears there.
   private var noteScreen: NSScreen?
   private lazy var noteHint = CidaHintPanel(identifier: "note-hint")
@@ -155,6 +160,15 @@ final class CidaAppDelegate: NSObject, NSApplicationDelegate {
   /// The application the panel was summoned from: a note saved in the panel names it, since the
   /// frontmost application while the panel is up is Cida itself.
   private var panelSourceApplication: NoteSourceApplication?
+  /// The quick chat (`Design/spec/chat.md`): one conversation at a time, in its own window.
+  /// Each finished answer is handed to the note store as the whole conversation so far.
+  private lazy var chat: ChatModel = {
+    let chat = ChatModel(
+      settings: { [weak self] in self?.model.settings ?? CidaSettings() },
+      saveNote: { [weak self] transcript in self?.saveChatTranscript(transcript) }
+    )
+    return chat
+  }()
   /// The translation layer (`Design/spec/translation-layer.md`); nil in automation that shows
   /// no interactive UI.
   private var translationLayer: TranslationLayerController?
@@ -190,6 +204,14 @@ final class CidaAppDelegate: NSObject, NSApplicationDelegate {
       }
     )
     self.panelController = panelController
+    chatController = ChatController(
+      model: chat,
+      // Without a model service, Settings opens where it is configured.
+      openSettings: { [weak self] in
+        guard let self else { return }
+        openSettings(on: model.isModelServiceConfigured ? nil : .model)
+      }
+    )
     if let logURL = launchOptions.lifecycleLogURL {
       lifecycleLog = AutomationLifecycleLog(url: logURL)
       lifecycleLog?.observe(panel: panelController.panel)
@@ -223,6 +245,9 @@ final class CidaAppDelegate: NSObject, NSApplicationDelegate {
       noteHotKey = GlobalHotKey(shortcut: model.settings.noteShortcut) { [weak self] in
         self?.handleNoteShortcut()
       }
+      chatHotKey = GlobalHotKey(shortcut: model.settings.chatShortcut) { [weak self] in
+        self?.handleChatShortcut()
+      }
       updateTranslationLayer(for: model.settings.layerShortcut)
       warmUpTextRecognition()
     }
@@ -247,6 +272,11 @@ final class CidaAppDelegate: NSObject, NSApplicationDelegate {
         inputInteractionProbe?.run()
       } else if launchOptions.designState == .streaming {
         model.submit()
+      } else if launchOptions.designState.isChat {
+        // Design fixtures exist in Debug builds only; a Release build has no chat state to draw.
+        #if DEBUG
+          presentDesignChatState()
+        #endif
       }
     } else if launchOptions.designState.isSettings {
       showSettings()
@@ -274,7 +304,7 @@ final class CidaAppDelegate: NSObject, NSApplicationDelegate {
       let targetWindow: NSWindow? =
         launchOptions.designState.isSettings
         ? settingsWindowController?.window
-        : panelController.panel
+        : launchOptions.designState.isChat ? chatController?.panel : panelController.panel
       scheduleSnapshot(of: targetWindow, to: outputURL)
     }
   }
@@ -311,6 +341,7 @@ final class CidaAppDelegate: NSObject, NSApplicationDelegate {
       case .translationLayer: layerHotKey
       case .improveSelection: improvementHotKey
       case .saveNote: noteHotKey
+      case .askChat: chatHotKey
       }
     let previous = hotKey?.shortcut
     if let hotKey, !hotKey.update(to: shortcut) {
@@ -337,6 +368,7 @@ final class CidaAppDelegate: NSObject, NSApplicationDelegate {
       case .showPanel: showPanelMenuItem
       case .captureText: captureMenuItem
       case .saveNote: noteMenuItem
+      case .askChat: chatMenuItem
       case .translationLayer, .improveSelection: nil as NSMenuItem?
       }
     item?.keyEquivalent = shortcut?.menuKeyEquivalent ?? ""
@@ -416,6 +448,34 @@ final class CidaAppDelegate: NSObject, NSApplicationDelegate {
       guard let self else { return }
       await selectionNote.saveSelection(settings: model.settings)
     }
+  }
+
+  /// The chat shortcut (`Design/spec/chat.md` §一): opens a new conversation in the quick chat
+  /// window, or puts the window away when it is already up. Both windows sit at the top of the
+  /// screen, so only one of them is up at a time.
+  @objc
+  private func handleChatShortcut() {
+    guard let chatController, !isCapturing, !isReadingSelection else { return }
+    selectionImprovement.dismiss()
+    if !chatController.isVisible {
+      // The request may need the Keychain key, which the first show recovers.
+      recoverAPIKeyIfNeeded()
+      panelController?.hide()
+    }
+    chatController.toggle()
+  }
+
+  /// A finished chat round goes into the notes file as the whole conversation so far
+  /// (`Design/spec/chat.md` §四). Like a generated result it is quiet — nobody pressed a note
+  /// key for it — except when the write fails, which the pill has to say.
+  private func saveChatTranscript(_ transcript: String) {
+    guard let text = SelectedText.normalized(transcript) else { return }
+    guard text.count <= NoteStore.maximumResultCharacters else {
+      logShortcut("note-chat-too-long source=chat")
+      return
+    }
+    selectionNote.saveChat(
+      text: text, application: chat.sourceApplication, settings: model.settings)
   }
 
   /// Saves the panel's text as a note; the panel's ⌘S and ⌥N with the panel up both land here.
@@ -577,6 +637,9 @@ final class CidaAppDelegate: NSObject, NSApplicationDelegate {
 
   private func presentPanel(action: ProcessingMode? = nil) {
     selectionImprovement.dismiss()
+    // The chat opens at the same spot on the screen; the panel takes its place
+    // (`Design/spec/chat.md` §一).
+    chatController?.hide()
     recoverAPIKeyIfNeeded()
     // Remember where the user was working before the panel takes the foreground: a note saved
     // from the panel names that application (`Design/spec/notes.md` §三).
@@ -601,6 +664,8 @@ final class CidaAppDelegate: NSObject, NSApplicationDelegate {
 
     guard let window = settingsWindowController?.window else { return }
     panelController?.hide()
+    // The chat floats above a normal window; leaving it up would cover the page.
+    chatController?.hide()
     NSApp.activate(ignoringOtherApps: true)
     window.makeKeyAndOrderFront(nil)
   }
@@ -692,6 +757,12 @@ final class CidaAppDelegate: NSObject, NSApplicationDelegate {
     menu.addItem(note)
     noteMenuItem = note
     updateMenuItem(for: .saveNote, shortcut: model.settings.noteShortcut)
+    let chatItem = NSMenuItem(
+      title: "快速问答", action: #selector(handleChatShortcut), keyEquivalent: "")
+    chatItem.target = self
+    menu.addItem(chatItem)
+    chatMenuItem = chatItem
+    updateMenuItem(for: .askChat, shortcut: model.settings.chatShortcut)
     let settings = NSMenuItem(title: "设置…", action: #selector(showSettings), keyEquivalent: ",")
     settings.target = self
     menu.addItem(settings)
@@ -1086,6 +1157,45 @@ extension CidaAppDelegate: UpdatePresenter {
   #endif
 }
 
+#if DEBUG
+  extension CidaAppDelegate {
+    /// The chat states of `Design/boards/chat.html` (`--design-state chat-*`). The window is
+    /// never ordered in: `SnapshotWriter` renders the view hierarchy, not the screen. The rounds
+    /// are fixtures (`ChatRound.design*`), and 还没有配置模型服务 takes the settings without a
+    /// model service, which `LaunchOptions.initialSettings` leaves unset for it.
+    fileprivate func presentDesignChatState() {
+      chat.refreshConfiguration()
+      chatController?.setContentHeightForDesign(CidaDesign.Chat.maxHeight)
+      switch launchOptions.designState {
+      case .chatStreaming:
+        chat.setRoundsForDesign([
+          .designStreaming(
+            question: ChatRound.designQuestion,
+            partial: ChatRound.designStreamingAnswer)
+        ])
+      case .chatFollowUp:
+        chat.setRoundsForDesign(
+          [
+            .designCompleted(
+              question: ChatRound.designQuestion, answer: ChatRound.designAnswer),
+            .designCompleted(
+              question: ChatRound.designFollowUpQuestion,
+              answer: ChatRound.designFollowUpAnswer),
+          ], input: ChatRound.designDraft)
+      case .chatFailed:
+        chat.setRoundsForDesign([
+          .designFailed(
+            question: ChatRound.designQuestion, partial: ChatRound.designFailedAnswer)
+        ])
+      case .chat, .chatUnconfigured:
+        chat.setRoundsForDesign([])
+      default:
+        break
+      }
+    }
+  }
+#endif
+
 /// Why Cida is starting (`Design/spec/lifecycle.md` §四): only a launch the user asked for
 /// brings the panel up.
 enum LaunchSource: Equatable {
@@ -1147,6 +1257,11 @@ private enum DesignState: String {
   case lifecycleUpdateCurrent = "lifecycle-update-current"
   case lifecycleUpdateFailed = "lifecycle-update-failed"
   case lifecycleUpdateReadOnly = "lifecycle-update-read-only"
+  case chat
+  case chatStreaming = "chat-streaming"
+  case chatFollowUp = "chat-follow-up"
+  case chatFailed = "chat-failed"
+  case chatUnconfigured = "chat-unconfigured"
   case copyMenu = "copy-menu"
   case shareTranslate = "share-translate"
   case shareRead = "share-read"
@@ -1161,6 +1276,12 @@ private enum DesignState: String {
   /// The empty panel before a model service is configured.
   var isWelcome: Bool {
     self == .lifecycleWelcome || self == .lifecycleWelcomeSubmitted
+  }
+
+  /// The states `Design/boards/chat.html` draws: the quick chat window instead of the panel.
+  var isChat: Bool {
+    self == .chat || self == .chatStreaming || self == .chatFollowUp || self == .chatFailed
+      || self == .chatUnconfigured
   }
 
   var isSettings: Bool { settingsTab != nil }
@@ -1234,7 +1355,7 @@ private struct LaunchOptions {
       }
       if usesDesignFixtures,
         designState == .settingsConfigUnset || designState == .settingsConfigCopied
-          || designState.isWelcome
+          || designState.isWelcome || designState == .chatUnconfigured
       {
         settings.modelService = ModelConfiguration()
         settings.apiKey = ""
@@ -1327,7 +1448,8 @@ private struct LaunchOptions {
         return ResultRecord.designIntoMine()
       case .targetEditing:
         return ResultRecord.designCompleted(mode: .translate)
-      case .empty, .streaming, .settings, .settingsTranslation, .settingsLanguageEditing,
+      case .empty, .streaming, .chat, .chatStreaming, .chatFollowUp, .chatFailed,
+        .chatUnconfigured, .settings, .settingsTranslation, .settingsLanguageEditing,
         .settingsPromptEditing, .settingsShortcuts, .settingsShortcutsCustom,
         .settingsShortcutsUnset, .settingsRecording, .settingsGeneral, .settingsUpdateAvailable,
         .settingsConfigUnset, .settingsConfigCopied,
@@ -1361,7 +1483,8 @@ private struct LaunchOptions {
         ResultRecord.designLongInput
       case .lifecycleWelcomeSubmitted:
         "Consistency is the last refuge of the unimaginative."
-      case .empty, .settings, .settingsTranslation, .settingsLanguageEditing,
+      case .empty, .chat, .chatStreaming, .chatFollowUp, .chatFailed, .chatUnconfigured,
+        .settings, .settingsTranslation, .settingsLanguageEditing,
         .settingsPromptEditing, .settingsShortcuts, .settingsShortcutsCustom,
         .settingsShortcutsUnset, .settingsRecording, .settingsGeneral, .settingsUpdateAvailable,
         .settingsConfigUnset, .settingsConfigCopied,

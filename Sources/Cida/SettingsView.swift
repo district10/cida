@@ -394,6 +394,10 @@ private struct SettingsBody: View {
         SettingsGroup {
           ActionsSettingsView(model: model, editor: model.actionEditor)
         }
+        Hairline()
+        SettingsGroup(title: "问答") {
+          ChatPromptRow(model: model)
+        }
       case .shortcuts:
         SettingsGroup(title: "快捷键", isFirst: true) {
           GlobalShortcutRow(model: model, action: .showPanel)
@@ -401,6 +405,7 @@ private struct SettingsBody: View {
           GlobalShortcutRow(model: model, action: .translationLayer)
           GlobalShortcutRow(model: model, action: .improveSelection)
           GlobalShortcutRow(model: model, action: .saveNote)
+          GlobalShortcutRow(model: model, action: .askChat)
         }
         Hairline()
         SettingsGroup(title: "笔记") {
@@ -827,6 +832,7 @@ private struct GlobalShortcutRow: View {
     case .translationLayer: "原处翻译"
     case .improveSelection: "改进并替换"
     case .saveNote: "存为笔记"
+    case .askChat: "快速问答"
     }
   }
 
@@ -845,6 +851,7 @@ private struct GlobalShortcutRow: View {
     case .translationLayer: return "加 ⇧ 翻译整个窗口"
     case .improveSelection: return "改进并替换选中文字"
     case .saveNote: return "把选中文字存进笔记文件"
+    case .askChat: return "弹窗里问一句，答案记进笔记"
     }
   }
 
@@ -855,6 +862,7 @@ private struct GlobalShortcutRow: View {
     case .translationLayer: "settings-layer-shortcut"
     case .improveSelection: "settings-improvement-shortcut"
     case .saveNote: "settings-note-shortcut"
+    case .askChat: "settings-chat-shortcut"
     }
   }
 
@@ -865,6 +873,7 @@ private struct GlobalShortcutRow: View {
     case .translationLayer: "原处翻译快捷键"
     case .improveSelection: "改进并替换快捷键"
     case .saveNote: "存为笔记快捷键"
+    case .askChat: "快速问答快捷键"
     }
   }
 
@@ -1088,6 +1097,36 @@ private struct NoteResultsRow: View {
         .tint(CidaDesign.accent)
         .controlSize(.small)
         .accessibilityIdentifier("settings-note-results-toggle")
+    }
+  }
+}
+
+/// The system message the quick chat asks under (`Design/spec/chat.md` §六): the model's
+/// identity there, not a text-transformation policy. It is one line in the field — a prompt
+/// long enough to need more is written from the command line (`config set chat-prompt`).
+private struct ChatPromptRow: View {
+  @Bindable var model: AppModel
+  @FocusState private var isFocused: Bool
+
+  var body: some View {
+    SettingsRow(title: "系统提示词", caption: "快速问答里模型的身份 · 留空用默认", alignment: .trailing) {
+      SettingsTextField(
+        text: $model.settings.chatSystemPrompt,
+        placeholder: CidaSettings.defaultChatPrompt,
+        accessibilityLabel: "快速问答系统提示词",
+        accessibilityIdentifier: "settings-chat-prompt-editor",
+        isFocused: isFocused
+      )
+      .focused($isFocused)
+    }
+    .onChange(of: isFocused) { _, focused in
+      if !focused { restoreDefaultIfEmpty() }
+    }
+  }
+
+  private func restoreDefaultIfEmpty() {
+    if model.settings.chatSystemPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      model.settings.chatSystemPrompt = CidaSettings.defaultChatPrompt
     }
   }
 }

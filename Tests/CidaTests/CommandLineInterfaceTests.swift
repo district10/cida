@@ -185,6 +185,28 @@ final class CommandLineInterfaceTests: XCTestCase {
     XCTAssertTrue(store.settings.noteResults)
   }
 
+  /// The chat fields of `Design/spec/chat.md`: the window's shortcut and the system prompt it
+  /// asks under. All six shortcuts share one namespace.
+  func testChatFieldsAreWrittenAndReset() async {
+    let store = InMemoryConfigurationStore()
+    await expect(
+      0,
+      ["config", "set", "chat-shortcut=control+option+k", "chat-prompt=你是我的笔记助手。"],
+      in: store)
+    XCTAssertEqual(store.settings.chatShortcut?.configurationText, "control+option+k")
+    XCTAssertEqual(store.settings.chatSystemPrompt, "你是我的笔记助手。")
+    XCTAssertEqual(store.settings.chatPrompt, "你是我的笔记助手。")
+
+    await expect(64, ["config", "set", "chat-shortcut=option+n"], in: store)
+    XCTAssertEqual(
+      store.settings.chatShortcut?.configurationText, "control+option+k",
+      "A combination another shortcut holds is refused")
+
+    await expect(0, ["config", "unset", "chat-shortcut", "chat-prompt"], in: store)
+    XCTAssertEqual(store.settings.chatShortcut, .optionC)
+    XCTAssertEqual(store.settings.chatSystemPrompt, CidaSettings.defaultChatPrompt)
+  }
+
   func testLanguagesTakeAnyWordingAndResetToChinese() async {
     let store = InMemoryConfigurationStore()
     await expect(0, ["config", "set", "my-language=粤语", "foreign-language=英式英语"], in: store)

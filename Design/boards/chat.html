@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+  <meta charset="utf-8">
+  <title>States — 快速问答</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="components.css">
+  <script src="components.js" defer></script>
+</head>
+<body>
+<!-- Rules: ../spec/chat.md. The state names are the app's --design-state values. -->
+<main class="board" data-board="chat">
+  <div class="board-title">States — 快速问答</div>
+  <p class="caption">规则见 spec/chat.md。⌥C 弹出的浮窗:顶边和面板同一条(panel-top-ratio),水平居中;宽 640(chat-width),高 min(560, 屏幕可见高度 × 0.6);不因失焦而关闭,重新打开就是新对话。提问写在 surface 上(界面字体),回答写在 paper 上(结果字体,流式时行尾是呼吸的 accent 光标),最下面是输入栏:⏎ 发送、⇧⏎ 换行、⌘. 停止、Esc 关闭。每答完一轮追一行进笔记文件:一轮一行,第 N 轮的行含有前 N−1 轮的内容。</p>
+
+  <p class="caption">① 新对话 — 问答区空着,输入栏只有占位「问一句，回车发送…」,此时没有可发送的内容,右侧槽位为空</p>
+  <section class="chat" data-state="chat">
+    <div class="transcript"></div>
+    <div class="input">
+      <div class="typed placeholder">问一句，回车发送…</div>
+    </div>
+  </section>
+  <div class="divider"></div>
+
+  <p class="caption">② 回答中 — 这一轮的问已进窗口,答按帧落进纸面(答案最多每 33ms 交给界面一次),行尾光标呼吸,右侧槽位是「停止 ⌘.」</p>
+  <section class="chat" data-state="chat-streaming">
+    <div class="transcript">
+      <div class="turn">
+        <div class="question">tar 的 -p 是什么意思？</div>
+        <div class="answer cjk">-p 是 --preserve-permissions 的缩写：解开归档时保留文件原本的权限位，而不是按 umask 重新计算。<span class="cursor"></span></div>
+      </div>
+    </div>
+    <div class="input">
+      <div class="typed placeholder">问一句，回车发送…</div>
+      <span class="bar-action"><i class="stop-icon"></i><span class="label">停止</span><span class="key">⌘.</span></span>
+    </div>
+  </section>
+  <div class="divider"></div>
+
+  <p class="caption">③ 追问 — 上一轮的问答留在窗口里,模型也看得到;输入栏里是下一个问题,槽位是「发送 ⏎」;流式期间贴着底部滚动</p>
+  <section class="chat" data-state="chat-follow-up">
+    <div class="transcript">
+      <div class="turn">
+        <div class="question">tar 的 -p 是什么意思？</div>
+        <div class="answer cjk">-p 是 --preserve-permissions 的缩写：解开归档时保留文件原本的权限位，而不是按 umask 重新计算。它一般用于以 root 解包系统备份；普通用户解自己的包时不需要。</div>
+      </div>
+      <div class="turn">
+        <div class="question">那 -m 呢？</div>
+        <div class="answer cjk">-m 是 --touch：解包时不恢复文件时间，而是把 mtime 设为解包的那一刻。GNU tar 里它主要用于做可复现的归档。</div>
+      </div>
+    </div>
+    <div class="input">
+      <div class="typed">那解包到 /tmp 呢？</div>
+      <span class="bar-action"><span class="label">发送</span><span class="key">⏎</span></span>
+    </div>
+  </section>
+  <div class="divider"></div>
+
+  <p class="caption">④ 这一轮失败 — 已经落下的文字留着,纸面下一行写原因;问题回到输入栏(已经打过字就不动),⏎ 就是再问一次;失败的一轮不进笔记</p>
+  <section class="chat" data-state="chat-failed">
+    <div class="transcript">
+      <div class="turn">
+        <div class="question">tar 的 -p 是什么意思？</div>
+        <div class="answer cjk">-p 是 --preserve-permissions 的缩写：解开归档时保留文件原本的权限位，
+          <div class="note"><i class="icon icon-circle-alert"></i><span>请求失败：401 Unauthorized（deepseek-chat）</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="input">
+      <div class="typed">tar 的 -p 是什么意思？</div>
+      <span class="bar-action"><span class="label">发送</span><span class="key">⏎</span></span>
+    </div>
+  </section>
+  <div class="divider"></div>
+
+  <p class="caption">⑤ 还没有配置模型服务 — 问答区写一行,不发请求;⌘, 打开设置</p>
+  <section class="chat" data-state="chat-unconfigured">
+    <div class="transcript">
+      <div class="note"><i class="icon icon-circle-alert"></i><span>还没有配置模型服务 · ⌘, 打开设置</span></div>
+    </div>
+    <div class="input">
+      <div class="typed placeholder">问一句，回车发送…</div>
+    </div>
+  </section>
+  <div class="divider"></div>
+
+  <p class="caption">深色外观 · 追问(dark-chat-follow-up,tokens.css 的 [data-appearance="dark"])</p>
+  <div data-appearance="dark">
+    <section class="chat" data-state="dark-chat-follow-up">
+      <div class="transcript">
+        <div class="turn">
+          <div class="question">tar 的 -p 是什么意思？</div>
+          <div class="answer cjk">-p 是 --preserve-permissions 的缩写：解开归档时保留文件原本的权限位，而不是按 umask 重新计算。它一般用于以 root 解包系统备份；普通用户解自己的包时不需要。</div>
+        </div>
+        <div class="turn">
+          <div class="question">那 -m 呢？</div>
+          <div class="answer cjk">-m 是 --touch：解包时不恢复文件时间，而是把 mtime 设为解包的那一刻。GNU tar 里它主要用于做可复现的归档。</div>
+        </div>
+      </div>
+      <div class="input">
+        <div class="typed">那解包到 /tmp 呢？</div>
+        <span class="bar-action"><span class="label">发送</span><span class="key">⏎</span></span>
+      </div>
+    </section>
+  </div>
+</main>
+</body>
+</html>
