@@ -83,8 +83,9 @@ final class ChatController {
   }
 
   /// Opens a new conversation (`Design/spec/chat.md` §五) at the panel's top edge on the screen
-  /// under the pointer, and gives the input the keyboard.
-  func show() {
+  /// under the pointer, and gives the input the keyboard. A selection read before the window
+  /// opened is quoted into the input (`§一 带入选区`).
+  func show(quoting quote: String? = nil) {
     guard let screen = PanelController.activeScreen() else { return }
     // Read before the window takes the keyboard: the note names where the reader was working
     // (`Design/spec/notes.md` §三's rule).
@@ -92,6 +93,7 @@ final class ChatController {
     model.reset()
     model.refreshConfiguration()
     model.sourceApplication = sourceApplication
+    if let quote { model.insertQuote(quote) }
 
     let size = Self.contentSize(on: screen)
     panel.setContentSize(size)

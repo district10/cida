@@ -204,6 +204,23 @@ final class ChatModel {
     presentationRevision &+= 1
   }
 
+  /// ⌥C with text selected (`Design/spec/chat.md` §一 带入选区): the window opens with the
+  /// selection quoted into the input, each line behind `>`, and a blank line under the block for
+  /// the instruction that follows. The quote is part of the question like anything else typed
+  /// there — this only saves the reader from pasting and marking it up by hand.
+  func insertQuote(_ text: String) {
+    // `isNewline` treats a CRLF as one break — in Swift "\r\n" is a single character — so a
+    // selection from any application splits the same way.
+    let quoted = text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline)
+      .map { line in
+        line.trimmingCharacters(in: .whitespaces).isEmpty ? ">" : "> \(line)"
+      }
+      .joined(separator: "\n")
+    inputText = quoted + "\n\n"
+    stagedInputDocument = nil
+    inputReplacementRevision &+= 1
+  }
+
   /// Empties the input for the next question, whichever way the text got there.
   private func clearInput() {
     inputText = ""
@@ -322,6 +339,14 @@ final class ChatModel {
       "-m 是 --touch：解包时不恢复文件时间，而是把 mtime 设为解包的那一刻。GNU tar 里它主要用于做可复现的归档。"
     static let designFailedAnswer = "-p 是 --preserve-permissions 的缩写：解开归档时保留文件原本的权限位，"
     static let designDraft = "那解包到 /tmp 呢？"
+    /// The selection ⌥C quotes into the input, and the instruction the reader adds under it
+    /// (`chat-quoted`).
+    static let designQuotedSelection = """
+      -p, --preserve-permissions
+          extract information about file permissions and let the extraction succeed even if
+          the permissions cannot be restored
+      """
+    static let designQuotedInstruction = "这是什么意思？"
 
     static func designCompleted(question: String, answer: String) -> ChatRound {
       designRound(question: question, answer: answer, phase: .completed)

@@ -37,7 +37,7 @@ compared natively:
 | ⑯ 译成我的语言 | `translate-into-mine` | `translate-into-mine` |
 | ⑰ 换一门外语 · ⌘L | `target-editing` | `target-editing` |
 | ⑱ 已换成日本語 | `target-changed` | (after ⏎ in the field; `ForeignLanguageTests`) |
-| 快速问答 · 新对话 / 回答中 / 追问 / 失败 / 还没配置模型 | `chat` / `chat-streaming` / `chat-follow-up` / `chat-failed` / `chat-unconfigured` | same |
+| 快速问答 · 新对话 / 带入选区 / 回答中 / 追问 / 失败 / 还没配置模型 | `chat` / `chat-quoted` / `chat-streaming` / `chat-follow-up` / `chat-failed` / `chat-unconfigured` | same |
 | 快速问答 · 深色外观 | `dark-chat-follow-up` | `dark-chat-follow-up` |
 | 设置 · 模型（默认） | `settings` | `settings` |
 | 设置 · 翻译 | `settings-translation` | `settings-translation` |

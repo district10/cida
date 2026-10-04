@@ -665,4 +665,29 @@ final class InteractionReproductionTests: XCTestCase {
     assertTestProcessIsNotFrontmost()
   }
 
+  // MARK: - Quick chat
+
+  /// ⌥C with a selection quotes it into the chat's input and leaves the caret under the quote,
+  /// where the instruction goes (`Design/spec/chat.md` §一 带入选区): the quote is put in before
+  /// the window takes the keyboard, and what the reader types next must land after it.
+  func testStagedQuoteLeavesTheCaretAfterIt() async throws {
+    let chat = ChatModel()
+    let (window, hostingView) = makeHiddenWindow(
+      rootView: ChatView(model: chat),
+      size: CGSize(width: CidaDesign.Chat.width, height: CidaDesign.Chat.maxHeight))
+    window.orderBack(nil)
+    hostingView.layoutSubtreeIfNeeded()
+
+    chat.insertQuote("第一行\n第二行")
+    try await Task.sleep(for: .milliseconds(80))
+    hostingView.layoutSubtreeIfNeeded()
+
+    let input = try XCTUnwrap(firstTextView(in: hostingView, identifier: "composer-input"))
+    XCTAssertEqual(input.string, "> 第一行\n> 第二行\n\n")
+    XCTAssertEqual(
+      input.selectedRange().location, (input.string as NSString).length,
+      "the caret waits on the blank line under the quote")
+    assertTestProcessIsNotFrontmost()
+  }
+
 }

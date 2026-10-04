@@ -451,18 +451,70 @@ final class CidaAppDelegate: NSObject, NSApplicationDelegate {
   }
 
   /// The chat shortcut (`Design/spec/chat.md` §一): opens a new conversation in the quick chat
-  /// window, or puts the window away when it is already up. Both windows sit at the top of the
-  /// screen, so only one of them is up at a time.
+  /// window, with the selection quoted into the input when there is one; pressed again it puts
+  /// the window away. Both windows sit at the top of the screen, so only one of them is up at a
+  /// time.
   @objc
   private func handleChatShortcut() {
-    guard let chatController, !isCapturing, !isReadingSelection else { return }
-    selectionImprovement.dismiss()
-    if !chatController.isVisible {
-      // The request may need the Keychain key, which the first show recovers.
-      recoverAPIKeyIfNeeded()
-      panelController?.hide()
+    guard let chatController, !isCapturing else { return }
+    if chatController.isVisible {
+      chatController.hide()
+      return
     }
-    chatController.toggle()
+    guard !isReadingSelection else {
+      logShortcut("chat-ignored reading-selection")
+      return
+    }
+    selectionImprovement.dismiss()
+    // The request may need the Keychain key, which the first show recovers.
+    recoverAPIKeyIfNeeded()
+    panelController?.hide()
+    // Reading a selection needs the Accessibility permission, and so does the ⌘C fallback that
+    // covers an application which cannot answer. Without it the window opens empty rather than
+    // asking: the chat needs no selection, so the permission is not worth demanding here.
+    model.refreshSelectionAccess()
+    guard model.isSelectionAccessGranted else {
+      logShortcut("chat-shown app=\(Self.frontmostBundleIdentifier)")
+      chatController.show()
+      return
+    }
+    isReadingSelection = true
+    let pressedAt = ContinuousClock.now
+    logShortcut("chat-pressed app=\(Self.frontmostBundleIdentifier)")
+    Task { @MainActor [weak self] in
+      guard let self else { return }
+      let selection = await SelectedText.read(
+        from: selectedTextSource, copyingWith: selectionCopier
+      ) { [weak self] event in self?.logShortcut(event) }
+      isReadingSelection = false
+      chatController.show(quoting: selection)
+      logShortcut(
+        selection == nil
+          ? "chat-shown"
+          : "chat-shown-quoted ms=\(pressedAt.duration(to: .now).milliseconds)")
+    }
+  }
+
+  /// 菜单栏「快速问答」: the same window and the same toggle, without reading anything — the menu
+  /// bar is Cida's own, so there is no selection of the reader's to bring in (显示辞达 makes the
+  /// same split).
+  @objc
+  private func toggleChatFromMenu() {
+    guard let chatController, !isCapturing, !isReadingSelection else { return }
+    if chatController.isVisible {
+      chatController.hide()
+      return
+    }
+    selectionImprovement.dismiss()
+    recoverAPIKeyIfNeeded()
+    panelController?.hide()
+    chatController.show()
+  }
+
+  /// The application the user is working in, for the shortcut log: a bundle identifier and
+  /// nothing else.
+  private static var frontmostBundleIdentifier: String {
+    NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "none"
   }
 
   /// A finished chat round goes into the notes file as the whole conversation so far
@@ -758,7 +810,7 @@ final class CidaAppDelegate: NSObject, NSApplicationDelegate {
     noteMenuItem = note
     updateMenuItem(for: .saveNote, shortcut: model.settings.noteShortcut)
     let chatItem = NSMenuItem(
-      title: "快速问答", action: #selector(handleChatShortcut), keyEquivalent: "")
+      title: "快速问答", action: #selector(toggleChatFromMenu), keyEquivalent: "")
     chatItem.target = self
     menu.addItem(chatItem)
     chatMenuItem = chatItem
@@ -1167,6 +1219,10 @@ extension CidaAppDelegate: UpdatePresenter {
       chat.refreshConfiguration()
       chatController?.setContentHeightForDesign(CidaDesign.Chat.maxHeight)
       switch launchOptions.designState {
+      case .chatQuoted:
+        // The real path: the quote goes in, then the instruction under it.
+        chat.insertQuote(ChatRound.designQuotedSelection)
+        chat.inputText += ChatRound.designQuotedInstruction
       case .chatStreaming:
         chat.setRoundsForDesign([
           .designStreaming(
@@ -1258,6 +1314,7 @@ private enum DesignState: String {
   case lifecycleUpdateFailed = "lifecycle-update-failed"
   case lifecycleUpdateReadOnly = "lifecycle-update-read-only"
   case chat
+  case chatQuoted = "chat-quoted"
   case chatStreaming = "chat-streaming"
   case chatFollowUp = "chat-follow-up"
   case chatFailed = "chat-failed"
@@ -1280,8 +1337,8 @@ private enum DesignState: String {
 
   /// The states `Design/boards/chat.html` draws: the quick chat window instead of the panel.
   var isChat: Bool {
-    self == .chat || self == .chatStreaming || self == .chatFollowUp || self == .chatFailed
-      || self == .chatUnconfigured
+    self == .chat || self == .chatQuoted || self == .chatStreaming || self == .chatFollowUp
+      || self == .chatFailed || self == .chatUnconfigured
   }
 
   var isSettings: Bool { settingsTab != nil }
@@ -1448,7 +1505,7 @@ private struct LaunchOptions {
         return ResultRecord.designIntoMine()
       case .targetEditing:
         return ResultRecord.designCompleted(mode: .translate)
-      case .empty, .streaming, .chat, .chatStreaming, .chatFollowUp, .chatFailed,
+      case .empty, .streaming, .chat, .chatQuoted, .chatStreaming, .chatFollowUp, .chatFailed,
         .chatUnconfigured, .settings, .settingsTranslation, .settingsLanguageEditing,
         .settingsPromptEditing, .settingsShortcuts, .settingsShortcutsCustom,
         .settingsShortcutsUnset, .settingsRecording, .settingsGeneral, .settingsUpdateAvailable,
@@ -1483,8 +1540,8 @@ private struct LaunchOptions {
         ResultRecord.designLongInput
       case .lifecycleWelcomeSubmitted:
         "Consistency is the last refuge of the unimaginative."
-      case .empty, .chat, .chatStreaming, .chatFollowUp, .chatFailed, .chatUnconfigured,
-        .settings, .settingsTranslation, .settingsLanguageEditing,
+      case .empty, .chat, .chatQuoted, .chatStreaming, .chatFollowUp, .chatFailed,
+        .chatUnconfigured, .settings, .settingsTranslation, .settingsLanguageEditing,
         .settingsPromptEditing, .settingsShortcuts, .settingsShortcutsCustom,
         .settingsShortcutsUnset, .settingsRecording, .settingsGeneral, .settingsUpdateAvailable,
         .settingsConfigUnset, .settingsConfigCopied,

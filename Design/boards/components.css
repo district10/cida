@@ -412,6 +412,8 @@ body {
   font-size: var(--font-size-body);
   line-height: 26px;
   color: var(--text-primary);
+  /* A quoted selection keeps its own line breaks and indentation (spec/chat.md §二). */
+  white-space: pre-wrap;
 }
 .chat .input .typed.placeholder { color: var(--text-tertiary); }
 .chat .input .bar-action { flex: none; }

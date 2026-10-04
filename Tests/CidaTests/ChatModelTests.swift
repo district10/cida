@@ -114,6 +114,48 @@ final class ChatModelTests: XCTestCase {
     XCTAssertEqual(model.rounds, [])
   }
 
+  // MARK: - The quoted selection
+
+  func testASelectionIsQuotedWithABlankLineUnderIt() {
+    let model = makeModel(service: StubChatService(answers: []))
+
+    model.insertQuote("第一行\n\n第二行")
+    XCTAssertEqual(
+      model.inputText, "> 第一行\n>\n> 第二行\n\n",
+      "every line carries its mark, and the instruction has its own paragraph")
+
+    model.insertQuote("一句话")
+    XCTAssertEqual(model.inputText, "> 一句话\n\n")
+
+    model.insertQuote("a\r\nb")
+    XCTAssertEqual(model.inputText, "> a\n> b\n\n", "a Windows line ending is one line")
+  }
+
+  func testTheInstructionUnderTheQuoteIsPartOfTheQuestion() async throws {
+    let service = StubChatService(answers: [["是 --preserve-permissions。"], ["因为解包要保留权限位。"]])
+    let notes = NoteRecorder()
+    let model = makeModel(service: service, saveNote: notes.record)
+
+    model.insertQuote("-p, --preserve-permissions\n    extract information about permissions")
+    model.inputText += "这是什么意思？"
+    model.send()
+    try await waitUntil { notes.transcripts.count == 1 }
+
+    XCTAssertEqual(
+      model.rounds[0].question,
+      "> -p, --preserve-permissions\n>     extract information about permissions\n\n这是什么意思？")
+    XCTAssertEqual(
+      service.recordedRequests.first?.turns,
+      [
+        ModelPromptMessage(
+          role: .user,
+          text: "> -p, --preserve-permissions\n>     extract information about permissions\n\n这是什么意思？")
+      ])
+    XCTAssertEqual(
+      notes.transcripts.first,
+      "问：> -p, --preserve-permissions\n>     extract information about permissions\n\n这是什么意思？\n\n答：是 --preserve-permissions。")
+  }
+
   // MARK: - The notes
 
   func testEveryFinishedRoundWritesTheWholeConversationSoFar() async throws {

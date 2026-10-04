@@ -24,7 +24,7 @@ swift build --package-path "$project_dir"
 # Panel states: the capture is the panel at its content height, 800 pt wide.
 # The share-* states capture the card ⇧⌘C copies instead of a window.
 for state in empty translate improve stale stopped failed long translate-into-mine target-editing copy-menu \
-  chat chat-streaming chat-follow-up chat-failed chat-unconfigured \
+  chat chat-quoted chat-streaming chat-follow-up chat-failed chat-unconfigured \
   share-translate share-read share-improve \
   settings settings-translation settings-language-editing settings-prompt-editing \
   settings-shortcuts settings-shortcuts-custom settings-shortcuts-unset settings-recording settings-general settings-update-available \

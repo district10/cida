@@ -11,7 +11,7 @@
 <!-- Rules: ../spec/chat.md. The state names are the app's --design-state values. -->
 <main class="board" data-board="chat">
   <div class="board-title">States — 快速问答</div>
-  <p class="caption">规则见 spec/chat.md。⌥C 弹出的浮窗:顶边和面板同一条(panel-top-ratio),水平居中;宽 640(chat-width),高 min(560, 屏幕可见高度 × 0.6);不因失焦而关闭,重新打开就是新对话。提问写在 surface 上(界面字体),回答写在 paper 上(结果字体,流式时行尾是呼吸的 accent 光标),最下面是输入栏:⏎ 发送、⇧⏎ 换行、⌘. 停止、Esc 关闭。每答完一轮追一行进笔记文件:一轮一行,第 N 轮的行含有前 N−1 轮的内容。</p>
+  <p class="caption">规则见 spec/chat.md。⌥C 弹出的浮窗:顶边和面板同一条(panel-top-ratio),水平居中;宽 640(chat-width),高 min(560, 屏幕可见高度 × 0.6);不因失焦而关闭,重新打开就是新对话。提问写在 surface 上(界面字体),回答写在 paper 上(结果字体,流式时行尾是呼吸的 accent 光标),最下面是输入栏:⏎ 发送、⇧⏎ 换行、⌘. 停止、Esc 关闭。按 ⌥C 时前台选中了文字就把选区引用进输入栏(每行一个 &gt;,空行只写 &gt;,下面空一行等光标)。每答完一轮追一行进笔记文件:一轮一行,第 N 轮的行含有前 N−1 轮的内容。</p>
 
   <p class="caption">① 新对话 — 问答区空着,输入栏只有占位「问一句，回车发送…」,此时没有可发送的内容,右侧槽位为空</p>
   <section class="chat" data-state="chat">
@@ -22,7 +22,22 @@
   </section>
   <div class="divider"></div>
 
-  <p class="caption">② 回答中 — 这一轮的问已进窗口,答按帧落进纸面(答案最多每 33ms 交给界面一次),行尾光标呼吸,右侧槽位是「停止 ⌘.」</p>
+  <p class="caption">② 带入选区 — 选中文字时按 ⌥C:选区以引用块进输入栏(每行一个 &gt;,空行只写 &gt;),下面空一行,光标等在那一行,补一句要问什么;它和手打的字一样,发送时原样进这一轮的问题。没有选中文字、或没有辅助功能权限时,窗口照常打开、输入栏空着(不申请权限)</p>
+  <section class="chat" data-state="chat-quoted">
+    <div class="transcript"></div>
+    <div class="input">
+      <div class="typed">&gt; -p, --preserve-permissions
+&gt;     extract information about file permissions and let the extraction succeed even if
+&gt;     the permissions cannot be restored
+&gt;
+
+这是什么意思？</div>
+      <span class="bar-action"><span class="label">发送</span><span class="key">⏎</span></span>
+    </div>
+  </section>
+  <div class="divider"></div>
+
+  <p class="caption">③ 回答中 — 这一轮的问已进窗口,答按帧落进纸面(答案最多每 33ms 交给界面一次),行尾光标呼吸,右侧槽位是「停止 ⌘.」</p>
   <section class="chat" data-state="chat-streaming">
     <div class="transcript">
       <div class="turn">
@@ -37,7 +52,7 @@
   </section>
   <div class="divider"></div>
 
-  <p class="caption">③ 追问 — 上一轮的问答留在窗口里,模型也看得到;输入栏里是下一个问题,槽位是「发送 ⏎」;流式期间贴着底部滚动</p>
+  <p class="caption">④ 追问 — 上一轮的问答留在窗口里,模型也看得到;输入栏里是下一个问题,槽位是「发送 ⏎」;流式期间贴着底部滚动</p>
   <section class="chat" data-state="chat-follow-up">
     <div class="transcript">
       <div class="turn">
@@ -56,7 +71,7 @@
   </section>
   <div class="divider"></div>
 
-  <p class="caption">④ 这一轮失败 — 已经落下的文字留着,纸面下一行写原因;问题回到输入栏(已经打过字就不动),⏎ 就是再问一次;失败的一轮不进笔记</p>
+  <p class="caption">⑤ 这一轮失败 — 已经落下的文字留着,纸面下一行写原因;问题回到输入栏(已经打过字就不动),⏎ 就是再问一次;失败的一轮不进笔记</p>
   <section class="chat" data-state="chat-failed">
     <div class="transcript">
       <div class="turn">
@@ -73,7 +88,7 @@
   </section>
   <div class="divider"></div>
 
-  <p class="caption">⑤ 还没有配置模型服务 — 问答区写一行,不发请求;⌘, 打开设置</p>
+  <p class="caption">⑥ 还没有配置模型服务 — 问答区写一行,不发请求;⌘, 打开设置</p>
   <section class="chat" data-state="chat-unconfigured">
     <div class="transcript">
       <div class="note"><i class="icon icon-circle-alert"></i><span>还没有配置模型服务 · ⌘, 打开设置</span></div>

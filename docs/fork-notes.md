@@ -20,6 +20,7 @@
 | 看完再存 | **⌥A** 开面板 → **⌘S**（或面板打开时按 ⌥N） | 存的是面板里那段文字（可编辑、可粘贴、可用 ⌥S 截图识别），`app` 记唤起面板时所在的应用 |
 | 翻译/改写自动入库 | 无需按键，默认开 | 每次生成成功后自动追一行：原文在 `text`，译文/改写结果在 `note`，`source` 记 `translation`/`improvement`；面板的翻译与改进、⌥F 的改进并替换都算，⌥D 原处翻译不算（一次一屏，太吵） |
 | 快速问答 | **⌥C** | 弹出一个小窗问一句、接着追问（模型是设置里那一个，system 提示词可在设置里改）；每答完一轮追一行，`source` 记 `chat`，`text` 是**到这一轮为止的全部问答**（Q1A1，追问一次就是 Q1A1Q2A2，各写一行、不重写上一行）；**重开就是新对话** |
+| 选中文字按 ⌥C | ⌥C（带选区） | 选区以引用块进输入栏（每行一个 `>`，空行只写 `>`），下面空一行、光标等在那里，补一句就问；与 ⌥A/⌥N 同一条读数路径，没有权限或没有选区时窗口照常打开、输入栏空着 |
 | 菜单栏 | 「存为笔记」 | 与其它动作并列，显示当前快捷键 |
 | 设置 | 快捷键 → 「存为笔记」行 + 「笔记」组（笔记文件路径、存结果开关） | |
 | 命令行 | `config set note-shortcut=…` / `note-file=…` / `note-results=…` | 与上游其它字段同一套 schema |
@@ -160,7 +161,10 @@ swift build -Xswiftc -warnings-as-errors && swift test
 
 快速问答（2026-10-04，同一台机器）：
 
-- ✅ `swift build -Xswiftc -warnings-as-errors` 干净；`ChatModelTests`（12 条）覆盖「每答完一轮把整段问答各追一行」
+- ✅ 带入选区（同日晚些时候加）：`insertQuote` 的格式（多行、空行、CRLF、单行）与「引用 + 说明一起进这一轮的问题、也一起进笔记」有单测；
+  `InteractionReproductionTests/testStagedQuoteLeavesTheCaretAfterIt` 用真编辑器确认光标落在引用块下面那一行（这条起名叫 Staged… 是为了落在 guest 分片 `test(Real|Replacing|Result|Settings|Staged)` 里，
+  免得到 Tart 里被分片规则漏掉），板上的 `chat-quoted` 状态与原生截图逐行对得上。
+- ✅ `swift build -Xswiftc -warnings-as-errors` 干净；`ChatModelTests`（14 条）覆盖「每答完一轮把整段问答各追一行」
   （`Q1A1` 与 `Q1A1Q2A2` 两条，停止/失败不写、重开清空且取消在跑的请求、追问把前几轮一起发给模型）与三种格式的请求体（`messages`/`input`/`system`）全绿；
   CLI 的 `chat-shortcut`/`chat-prompt`（含与其它快捷键不能相同）与「老配置拿到默认值、不抢别人的 ⌥C」也有单测。
   全量 `swift test` 359 条只剩上面那 3 条既有的 dvorak 断言失败（2 个用例），与本次无关。
