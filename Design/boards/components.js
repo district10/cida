@@ -16,9 +16,9 @@ const copyMenu = `
     <div class="row on"><i class="icon icon-image"></i><b>复制图片</b><kbd>⇧⌘C</kbd></div>
   </div>`;
 
-// target="English" writes the foreign language my language goes into after 翻译
-// (spec/panel.md §三); target-editing="日本語" draws it as a field, target-selected with its
-// text selected as ⌘L leaves it.
+// target="English" writes the foreign language my language goes into after 翻译, which then
+// reads 翻译成 (spec/panel.md §三); target-editing="日本語" draws it as a field, target-selected
+// with its text selected as ⌘L leaves it.
 class CidaBar extends HTMLElement {
   connectedCallback() {
     const mode = this.getAttribute("mode") ?? "translate";
@@ -50,9 +50,12 @@ class CidaBar extends HTMLElement {
     const targetSelected = this.hasAttribute("target-selected");
     const object = target === null ? ""
       : `<span class="object${objectClass}">${targetSelected ? `<span class="selected">${word}</span>` : word}${editing !== null && !targetSelected ? `<i class="caret"></i>` : ""}</span>`;
+    // 成 joins the verb and leaves with the language.
+    const joint = (option) => target === null || option !== "翻译" ? ""
+      : `<span class="joint${this.hasAttribute("target-leaving") ? " leaving" : ""}">成</span>`;
     const segments = options
       .map((option, index) => index === selected
-        ? `<span class="on">${option}${index === 0 ? object : ""}</span>`
+        ? `<span class="on">${option}${index === 0 ? joint(option) + object : ""}</span>`
         : `<span>${option}</span>`)
       .join("");
     const hint = options.length > 1 ? `<span class="tab-hint">⇥ 切换</span>` : "";
@@ -109,18 +112,16 @@ class CidaSettings extends HTMLElement {
     const languages = row("我的语言", "其他语言都译成它", is("language", "editing")
       ? field("繁體中文（台灣）<i class=\"caret\"></i>", "short focused") : field("简体中文", "short"), "end");
 
-    const prompt = (title, preview) => `
-      <div class="row prompt">
-        <div class="labels"><b>${title}</b><small>${preview}</small></div>
-        <span class="button">编辑</span>
-      </div>`;
-    const improve = is("editing", "improve")
-      ? `<div class="prompt-editor">
-           <div class="head"><b>改进</b><span class="link">恢复默认</span></div>
-           <div class="sheet">You are a writing assistant. Improve the user-provided text for clarity, grammar, and natural tone. Keep the original language and meaning. Prefer precise technical wording. Return only the improved text.</div>
-           <small>自动保存 · 目标语言与任务由应用传入，不必写占位符</small>
-         </div>`
-      : prompt("改进", "You are a writing assistant. Improve the user-provided text…");
+    const actionEditing = is("editing", "improve");
+    const actions = `<div class="actions-heading"><h3>动作</h3><small>拖动排序 · 首项默认</small></div>
+      <section class="actions-preview">
+        <div class="actions-sample"><small><span>样例</span><span>使用当前模型</span></small>
+          <p>想跟你同步一下，原定周五的分享会要改到下周三下午三点，地点还是二楼会议室。主要是因为演示还没准备好，有几处细节想再确认一下。如果这个时间不方便，麻烦明天中午前告诉我，我们再一起看看怎么安排。</p></div>
+        <div class="bar"><div class="seg"><span class="${actionEditing ? "" : "on"}">翻译</span><span class="${actionEditing ? "on" : ""}">改进</span><span>+</span></div><span class="bar-action"><span>${actionEditing ? "完成" : "编辑"}</span><span class="key">${actionEditing ? "⌘↵" : "⌘E"}</span></span></div>
+        <div class="actions-paper">${actionEditing ? `<div class="actions-instruction"><small><span>提示词</span><span>删除动作</span></small><p>You are a writing assistant. Improve the user-provided text for clarity, grammar, and natural tone. Keep the original language and meaning. Prefer precise technical wording. Return only the improved text.</p></div>` : ""}
+          ${actionEditing ? '<small>完成后预览 · ⌘↵</small>' : '<p class="actions-placeholder">完成提示词编辑后，在这里看它的效果。</p><small>使用当前模型 · 固定样例</small>'}
+        </div>
+      </section>`;
 
     // spec/settings.md §四: five recordable shortcuts; shortcut="unset" is someone who only
     // captures text, with 显示辞达 and 原处翻译 cleared.
@@ -194,7 +195,7 @@ class CidaSettings extends HTMLElement {
 
     const tab = this.getAttribute("tab") ?? "model";
     const tabs = [
-      ["model", "模型", "sparkles"], ["translation", "翻译", "languages"],
+      ["model", "模型", "sparkles"], ["translation", "动作", "pen-line"],
       ["shortcuts", "快捷键", "keyboard"], ["general", "通用", "sliders-horizontal"],
     ];
     const tabBar = `<div class="settings-tabs">${tabs.map(([key, title, icon]) =>
@@ -204,7 +205,7 @@ class CidaSettings extends HTMLElement {
       model: `<div class="group">${modelGroup}</div>`,
       translation: `
         <div class="group"><h3>语言</h3>${languages}</div>
-        <div class="group"><h3>提示词</h3>${prompt("翻译", "Translate the user-provided text into the target language…")}${improve}</div>`,
+        <div class="group">${actions}</div>`,
       shortcuts: `
         <div class="group"><h3>快捷键</h3>${shortcut}${capture}${layerShortcut}${improvementShortcut}${noteShortcut}</div>
         <div class="group"><h3>笔记</h3>${noteFile}${noteResults}</div>

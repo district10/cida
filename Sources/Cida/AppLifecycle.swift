@@ -118,7 +118,7 @@ final class CidaAppDelegate: NSObject, NSApplicationDelegate {
     operation.onResult = { [weak self] result in
       guard let self else { return }
       model.importImprovementResult(result)
-      panelController?.show(preservingMode: true)
+      panelController?.show(action: .improve)
     }
     operation.onGenerated = { [weak self] source, output in
       guard let self else { return }
@@ -506,7 +506,7 @@ final class CidaAppDelegate: NSObject, NSApplicationDelegate {
     model.importCapturedText(text)
     lifecycleLog?.record(text == nil ? "capture-unrecognized" : "capture-imported")
     await panelController?.layOutHiddenContent()
-    showPanel()
+    presentPanel(action: .translate)
   }
 
   /// The layer runs only while it has a shortcut: without one nothing could turn off a
@@ -572,6 +572,10 @@ final class CidaAppDelegate: NSObject, NSApplicationDelegate {
 
   @objc
   func showPanel() {
+    presentPanel()
+  }
+
+  private func presentPanel(action: ProcessingMode? = nil) {
     selectionImprovement.dismiss()
     recoverAPIKeyIfNeeded()
     // Remember where the user was working before the panel takes the foreground: a note saved
@@ -580,7 +584,7 @@ final class CidaAppDelegate: NSObject, NSApplicationDelegate {
       panelSourceApplication = SelectionNote.currentApplication()
     }
     lifecycleLog?.record("show-panel-requested", panel: panelController?.panel)
-    panelController?.show()
+    panelController?.show(action: action)
     lifecycleLog?.record("show-panel-finished", panel: panelController?.panel)
   }
 
@@ -752,7 +756,8 @@ final class CidaAppDelegate: NSObject, NSApplicationDelegate {
         model.settingsTab = tab
       }
       if launchOptions.designState == .settingsPromptEditing {
-        model.editingPrompt = .improve
+        model.actionEditor.select(.improve)
+        model.actionEditor.begin(model.settings)
       }
       if launchOptions.designState == .settingsRecording {
         model.recordingShortcut = .showPanel
