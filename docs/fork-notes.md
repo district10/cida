@@ -3,15 +3,13 @@
 这是一份**个人 fork**，分支 `notes`。上游是 [Xuanwo/cida](https://github.com/Xuanwo/cida)（辞达：用你自己的模型在 Mac 任何地方翻译和润色）。
 我们保留它的全部翻译能力，只加一件事：**把选中的文字（或剪贴板里的文字）一键存成本地笔记**。
 
-## 一、为什么在这里改，而不是继续自己写
+## 一、为什么做这份 fork
 
-我们原本自己写了一个叫 Jotbox 的小工具（`~/git/jotbox`，已停维护）：划词/剪贴板 → 追加一行 JSONL，带时间与来源 App。
-它能用，但"细节打磨"远不如辞达：辞达的选区读取有辅助功能优先 + ⌘C 兜底 + 剪贴板原样放回 + 密码框拒绝 + Dvorak 键位匹配，
-还有提示胶囊、权限引导、日志与测试。这些正是自己写最容易做糙的部分。
+上游辞达把"翻译与润色"打磨得很细：选区读取有辅助功能优先 + ⌘C 兜底 + 剪贴板原样放回 + 密码框拒绝 + Dvorak 键位匹配，
+还有提示胶囊、权限引导、日志与测试。这些正是自己另起一个收集器最容易做糙的部分。
 
-所以：**停止维护 Jotbox，能力并进这份 fork**——辞达负责划词与剪贴板（本 fork），
-写的是同一份 `~/Library/Application Support/Jotbox/inbox.jsonl`（格式完全相同，见 §三），
-旧数据不用迁移。Jotbox 那半个能力（剪贴板）由 §二 的剪贴板回退覆盖。
+所以我们不另写工具，只在这份 fork 上做一件事：**把选中的文字（或剪贴板里的文字）一键存成本地笔记**。
+辞达负责划词与剪贴板，翻译能力一个不动；笔记落在辞达自己的收件箱里（§三）。
 
 ## 二、我们加了什么
 
@@ -36,12 +34,11 @@
 
 ## 三、数据：一份自己的收件箱
 
-默认写 `~/.cida/items.jsonl`（可用 `note-file` 或设置改）。想继续与 Jotbox 共用一份，把路径指回
-`~/Library/Application Support/Jotbox/inbox.jsonl` 即可——格式没变，旧数据不用迁移。
-一行一条 JSON，键按字母序，中文与斜杠不转义；字段与 Jotbox 的 `Record` 一致：`schema`(1) / `id` / `ts`(ISO 8601 带毫秒与时区) / `source` / `text` / `note` / `app{name,bundle_id}` / `copied`。
-`source` 是 `selection`、`clipboard`、`translation` 或 `improvement`（Jotbox 另有 `cli`）；`note` 平时是 `null`，
+默认写 `~/.cida/items.jsonl`（可用 `note-file` 或设置改）。
+一行一条 JSON，键按字母序，中文与斜杠不转义；字段固定：`schema`(1) / `id` / `ts`(ISO 8601 带毫秒与时区) / `source` / `text` / `note` / `app{name,bundle_id}` / `copied`。
+`source` 是 `selection`、`clipboard`、`translation` 或 `improvement`；`note` 平时是 `null`，
 自动入库的那两种把译文/改写结果放在这里，`text` 始终是原文。
-写入用 `O_APPEND` + 单次 `write`，所以辞达与 Jotbox（或任何别的写入者）可以同时追加而不会互相覆盖。
+写入用 `O_APPEND` + 单次 `write`，所以辞达与任何别的写入者（脚本、其它工具）可以同时追加而不会互相覆盖。
 60 秒内、同一个 App、`text` 与 `note` 都相同才算重复，只提示不重复写入（所以同一段原文重新生成出不同结果会各留一行）。
 
 ```bash
@@ -112,16 +109,16 @@ swift build -Xswiftc -warnings-as-errors && swift test
 **改动面**集中在 §二 列的那 7 个文件，且都是"各加一小段"的形式——上游若改动同一区域会有小冲突，按各自意图合并即可。
 上游的 `AGENTS.md`、`Design/` 规则照旧遵守（设计先行、界面改动要带截图、`-warnings-as-errors` 与 `swift test` 必须过）。
 
-## 六、能力对照（对照已停维护的 Jotbox）
+## 六、能力现状
 
-| Jotbox 的能力 | 现在 | 说明 |
+| 能力 | 现状 | 说明 |
 | --- | --- | --- |
-| 划词（右键服务） | ✅ 换成 ⌥N | 更省事；macOS 26 起右键服务本身也要用户先去设置里勾选，见 `~/git/jotbox/docs/DESIGN.md` |
-| 剪贴板一键存 | ✅ ⌥N 回退 | 不必先切到菜单栏 |
+| 划词存笔记 | ✅ ⌥N | 比右键服务省事，不必先去设置里勾选 |
+| 剪贴板一键存 | ✅ ⌥N 回退 | 没选中文字时存剪贴板，不必先切到菜单栏 |
 | 翻译/改写的结果也留下 | ✅ 默认开 | 每次生成成功自动追一行（原文 `text` + 结果 `note`）；设置里的「存结果」或 `note-results=false` 可关 |
-| 存之前补一句备注（人写的，进 `note` 字段） | ❌ 未覆盖 | `note` 现在装自动入库的结果；人写的备注框还没做，要结构化备注得在面板加输入框（配 `Design/spec/panel.md` 更新） |
-| `copied{ts,app}`（这份剪贴板何时从哪复制） | ❌ 未覆盖 | 需要常驻轮询 `NSPasteboard.changeCount`（Jotbox 有，~40 行）；辞达不做，`copied` 恒为 `null` |
-| `jotbox add`（脚本/stdin 灌入） | ❌ 未覆盖 | 要的话给辞达 CLI 加一个 `note add` 子命令，走同一个 `NoteStore` |
+| 存之前补一句备注（人写的，进 `note` 字段） | ❌ 未做 | `note` 现在装自动入库的结果；人写的备注框还没做，要结构化备注得在面板加输入框（配 `Design/spec/panel.md` 更新） |
+| `copied{ts,app}`（这份剪贴板何时从哪复制） | ❌ 未做 | 需要常驻轮询 `NSPasteboard.changeCount`（约 40 行）；辞达不做，`copied` 恒为 `null` |
+| 从命令行/stdin 灌入一条笔记 | ❌ 未做 | 要的话给辞达 CLI 加一个 `note add` 子命令，走同一个 `NoteStore` |
 | 提示反馈、去重、可配路径、菜单栏、CLI 配置 | ✅ | |
 
 ## 七、已验证 / 未验证（2026-10-03，本机 macOS 27.0 arm64）
@@ -148,7 +145,7 @@ swift build -Xswiftc -warnings-as-errors && swift test
 - ⚠️ 自动入库的端到端（真实模型）没跑：单测覆盖了"完成的生成才入库、结果与原文成对、失败不写"，但一条真实的翻译落盘要你本机用一次确认；
   查 `log stream --predicate 'category == "shortcut"' | grep note-saved-result` 或直接 `tail -f ~/.cida/items.jsonl`。
 - ⚠️ 面板里的 **⌘S**：代码路径与已验证的"⌥N 在面板打开时"完全相同，且有单测覆盖路由判定（`NoteShortcutRouting`）；
-  但这台机器上**合成键盘事件进不了任何 App**（辞达与 Jotbox 都一样，鼠标事件与 Carbon 全局热键可以），所以按键本身只能人工确认。
+  但这台机器上**合成键盘事件进不了任何 App**（鼠标事件与 Carbon 全局热键可以），所以按键本身只能人工确认。
 - ⚠️ 划词读取本身要有辅助功能权限才能端到端跑通（TCC 无法程序化授予）。
 - ⚠️ 换机器安装：DMG 未公证，第一次打开要右键 →「打开」；权限要重新授予（见 §四）。
 

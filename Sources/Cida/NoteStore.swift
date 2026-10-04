@@ -1,6 +1,6 @@
 import Foundation
 
-/// The application a note was captured from; the shape Jotbox writes for `app`.
+/// The application a note was captured from; the shape of the `app` field.
 struct NoteSourceApplication: Codable, Equatable, Sendable {
   var name: String?
   var bundleIdentifier: String?
@@ -20,8 +20,9 @@ struct NoteSourceApplication: Codable, Equatable, Sendable {
   }
 }
 
-/// Jotbox's clipboard provenance (`{ts, app}`). A note saved from a selection has none; the key
-/// is still written, as null, so every line in the file carries the same fields.
+/// Clipboard provenance (`{ts, app}`): where and when this clipboard text was copied. Cida does
+/// not track that — it would take a resident `NSPasteboard.changeCount` poller — so the key is
+/// always written as null, and every line in the file carries the same fields.
 struct NoteClipboardOrigin: Codable, Equatable, Sendable {
   var ts: String
   var app: NoteSourceApplication?
@@ -30,7 +31,8 @@ struct NoteClipboardOrigin: Codable, Equatable, Sendable {
 /// A note about to be saved.
 struct NoteDraft: Equatable, Sendable {
   var text: String
-  /// What the note was taken from: Jotbox's vocabulary (`selection`, `clipboard`, `cli`).
+  /// What the note was taken from: `selection` or `clipboard` for one the user keyed in,
+  /// `translation` or `improvement` for a generated result (`Design/spec/notes.md` §四).
   var source: String
   var application: NoteSourceApplication?
   var note: String?
@@ -115,14 +117,13 @@ enum NoteStoreError: Error, Equatable {
   }
 }
 
-/// Appends notes as one JSON line each. The line shape is Jotbox's (`Design/spec/notes.md`), so
-/// pointing `note-file` at Jotbox's inbox puts both tools' notes in one file the user owns.
+/// Appends notes as one JSON line each. The line shape is fixed by `Design/spec/notes.md` §二:
+/// one JSON object per line, keys sorted, Chinese and slashes left as they were typed.
 ///
 /// `O_APPEND` with a single write per line is what makes two writers safe: neither can overwrite
 /// the other's lines, whatever order they arrive in.
 struct NoteStore: Sendable {
-  /// Where notes go when the user has not named a file: Cida's own inbox, which Jotbox's format
-  /// already speaks.
+  /// Where notes go when the user has not named a file: Cida's own inbox.
   static var defaultFileURL: URL {
     URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
       .appendingPathComponent(".cida/items.jsonl")
@@ -208,13 +209,13 @@ struct NoteStore: Sendable {
 
   private static let encoder: JSONEncoder = {
     let encoder = JSONEncoder()
-    // Jotbox's own settings: stable key order, and slashes and Chinese left readable.
+    // Stable key order, and slashes and Chinese left readable.
     encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
     return encoder
   }()
   private static let decoder = JSONDecoder()
 
-  /// The file's time: ISO 8601 with milliseconds and the local offset, as Jotbox writes it.
+  /// The file's time: ISO 8601 with milliseconds and the local offset.
   static func timestampText(from date: Date) -> String {
     timestampFormatter().string(from: date)
   }

@@ -145,7 +145,7 @@ enum ConfigurationField: String, CaseIterable, Sendable {
         type: "path", values: nil, defaultValue: NoteStore.defaultFileURL.path,
         example: "~/Documents/notes.jsonl",
         description:
-          "笔记文件的位置，一行一条 JSON（与 Jotbox 的 inbox.jsonl 同一格式，想共用一份就指向它）；开头可用 ~，留空表示用默认位置")
+          "笔记文件的位置：一行一条 JSON，追加写入；开头可用 ~，留空表示用默认位置 ~/.cida/items.jsonl")
     case .noteResults:
       Schema(
         type: "boolean", values: ["true", "false"], defaultValue: "true", example: "false",

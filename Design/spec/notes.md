@@ -26,23 +26,23 @@
 
 ## 二、落盘
 
-- 一行一条 JSON，UTF-8，`\n` 结尾；只追加，从不改写（`O_APPEND` 加一次 `write`，所以辞达和 Jotbox 可以同时往同一个文件里写而不会互相覆盖）。
-- 默认写进 `~/.cida/items.jsonl`：辞达自己的收件箱，不依赖别的工具。格式仍是 Jotbox 那一套，所以想与它共用一份时把 `note-file` 指向 `~/Library/Application Support/Jotbox/inbox.jsonl` 即可，旧数据继续读得到。改路径用设置里的字段或 `config set note-file=~/Documents/notes.jsonl`（支持 `~`；留空回到默认）。
-- 字段与 Jotbox 的 `Record` 一致，`schema` 为 1；键按字母序，中文与斜杠不转义（`jq`、`grep` 直接可用）：
+- 一行一条 JSON，UTF-8，`\n` 结尾；只追加，从不改写（`O_APPEND` 加一次 `write`，所以辞达和别的写入者——脚本、其它工具——可以同时往同一个文件里写而不会互相覆盖）。
+- 默认写进 `~/.cida/items.jsonl`：辞达自己的收件箱，不依赖别的工具。改路径用设置里的字段或 `config set note-file=~/Documents/notes.jsonl`（支持 `~`；留空回到默认）。
+- 字段固定，`schema` 为 1；键按字母序，中文与斜杠不转义（`jq`、`grep` 直接可用）：
 
   | 字段 | 值 |
   | --- | --- |
   | `schema` | `1` |
   | `id` | `UUID().uuidString` |
   | `ts` | ISO 8601，毫秒精度，带本地时区偏移，如 `2026-10-02T22:03:05.123+08:00` |
-  | `source` | `"selection"`、`"clipboard"`、`"translation"` 或 `"improvement"`（前两种是 ⌥N / ⌘S，后两种见 §四；Jotbox 另有 `cli`） |
+  | `source` | `"selection"`、`"clipboard"`、`"translation"` 或 `"improvement"`（前两种是 ⌥N / ⌘S，后两种见 §四） |
   | `text` | 原文，不清洗（首尾空白按读数路径的规则裁掉，见 `SelectedText.normalized`） |
-  | `note` | `null`，或 §四 自动记下的译文/改写结果（Jotbox 的备注流程也用这个字段） |
+  | `note` | `null`，或 §四 自动记下的译文/改写结果 |
   | `app` | `{name, bundle_id}` 或 `null` |
   | `copied` | `null`（"这份剪贴板什么时候从哪复制的"需要常驻轮询 changeCount，辞达不做） |
 
 - 没有这一行就不算存过：写失败要说出来（胶囊「存入失败：…」），不静默。
-- 目录不存在时按需创建；不写 README——那是 Jotbox 的目录说明。
+- 目录不存在时按需创建；不写 README，笔记文件本身就是全部状态。
 
 ## 三、面板里的 ⌘S
 

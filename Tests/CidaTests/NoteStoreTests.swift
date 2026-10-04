@@ -2,7 +2,7 @@ import XCTest
 
 @testable import Cida
 
-/// Saving notes (`Design/spec/notes.md`): the line format Jotbox reads, the append-only write,
+/// Saving notes (`Design/spec/notes.md`): the line format the file speaks, the append-only write,
 /// and the double-press window.
 final class NoteStoreTests: XCTestCase {
   private var directory: URL!
@@ -49,8 +49,8 @@ final class NoteStoreTests: XCTestCase {
     XCTAssertTrue(line.contains("\"bundle_id\":\"com.apple.Safari\""))
   }
 
-  /// The file is read by `jq`, by `grep` and by Jotbox; keys stay sorted and Chinese and slashes
-  /// stay as they were typed.
+  /// The file is read by `jq` and by `grep`; keys stay sorted and Chinese and slashes stay as
+  /// they were typed.
   func testTheLineStaysReadable() throws {
     let store = store()
     try store.append(NoteDraft(text: "中文不转义，斜杠 https://example.com/a/b 也不转义"))
@@ -153,8 +153,8 @@ final class NoteStoreTests: XCTestCase {
 
   // MARK: - The default file
 
-  /// The default inbox is Cida's own (`Design/spec/notes.md` §二): notes do not depend on
-  /// another tool being installed, and Jotbox's format is still what the file speaks.
+  /// The default inbox is Cida's own (`Design/spec/notes.md` §二): saving a note never depends on
+  /// a path being configured first.
   func testTheDefaultFileIsCidasOwnInbox() {
     XCTAssertEqual(
       NoteStore.defaultFileURL.path,

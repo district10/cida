@@ -268,9 +268,8 @@ struct CidaSettings: Equatable, Sendable {
   /// The combination that saves the selection as a note without showing the panel
   /// (`Design/spec/notes.md`).
   var noteShortcut: GlobalShortcut? = .optionN
-  /// Where selection notes are written. Empty means Cida's own inbox
-  /// (`NoteStore.defaultFileURL`), which Jotbox's format already speaks; a path (`~` allowed)
-  /// puts them somewhere else, Jotbox's inbox included.
+  /// Where notes are written. Empty means Cida's own inbox (`NoteStore.defaultFileURL`); a path
+  /// (`~` allowed) puts them somewhere else.
   var noteFile = ""
   /// Whether a completed translation or improvement is kept beside its source in the same file
   /// (`Design/spec/notes.md` §四). On by default: a collector wants both halves.
